@@ -27,7 +27,8 @@ def append_nvcc_threads(nvcc_extra_args):
 arch = get_last_arch_torch()
 # [MP] make install more flexible here
 sm_num = arch[-2:]
-cc_flag = ['--generate-code=arch=compute_80,code=compute_80']
+#cc_flag = ['--generate-code=arch=compute_80,code=compute_80']
+cc_flag = ['--generate-code=arch=compute_89,code=compute_89']  # for RTX 6000, 4090
 
 
 setup(

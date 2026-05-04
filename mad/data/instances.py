@@ -508,6 +508,138 @@ def generate_compression_instance(
 
     return inputs, inputs
 
+# Markov compression:
+
+def generate_mf_compression_instance(
+    vocab_size: int = 16,
+    seq_len: int = 32,
+    k_motif_size: int = 1,
+    v_motif_size: int = 1,
+    noise_vocab_size: int = 0,
+    frac_noise: float = 0,
+    rng: np.random.Generator = None,
+    target_ignore_idx: int = -100,
+    *args, **kwargs
+) -> tp.Tuple[np.array, np.array]:
+    """
+    Generate an instance of the Markov compression task.
+    
+    Args:
+        vocab_size (int, optional): The size of the vocabulary.
+        seq_len (int, optional): The length of the generated sequence.
+        noise_vocab_size (int, optional): The size of the noise vocabulary (will be subtracted from vocab_size).
+        frac_noise (float, optional): The fraction of noise tokens in the sequence.
+        rng (np.random.Generator, optional): The random number generator to use if provided.
+        target_ignore_idx (int, optional): Index used in targets to indicate which entries to ignore.
+        
+    Returns:
+        tuple: Inputs and targets.    
+    """
+
+    if not exists(rng):
+        rng = np.random.default_rng()
+
+    # generate inputs/targets:
+    compression_token = vocab_size - 1
+    non_special_vocab_size = vocab_size - 1
+    non_special_vocab_size -= noise_vocab_size
+    vocab = np.arange(non_special_vocab_size)
+    #inputs = rng.choice(vocab, size=(seq_len-1,), replace=True).reshape(-1)
+    matrix = rng.random((non_special_vocab_size, non_special_vocab_size))
+    matrix = matrix / matrix.sum(axis=1, keepdims=True)
+
+    inputs = []
+    start_tokens = rng.choice(vocab,k_motif_size)
+    inputs += [token for token in start_tokens]
+
+    for _ in range(seq_len - 2):
+        probs = matrix[current_token]
+        next_token = rng.choice(vocab, p=probs)
+        inputs.append(next_token)
+        current_token = next_token
+
+    inputs = np.concatenate([np.array(inputs), np.array([compression_token])])
+    targets = np.array(inputs)
+
+    # add noise:
+    if frac_noise > 0:
+        assert noise_vocab_size > 0, "noise vocab size must be > 0 if frac_noise > 0"
+        noise_vocab = np.arange(non_special_vocab_size, non_special_vocab_size+noise_vocab_size)
+        for i in range(seq_len-1): # exclude compression token
+            if rng.random() < frac_noise:
+                inputs[i:(i+1)] = rng.choice(noise_vocab)
+                targets[i:(i+1)] = target_ignore_idx
+
+    return inputs, targets
+
+
+def generate_m_compression_instance(
+    vocab_size: int = 16,
+    seq_len: int = 32,
+    k_motif_size: int = 1,
+    v_motif_size: int = 1,
+    noise_vocab_size: int = 0,
+    frac_noise: float = 0,
+    rng: np.random.Generator = None,
+    target_ignore_idx: int = -100,
+    *args, **kwargs
+) -> tp.Tuple[np.array, np.array]:
+    """
+    Generate an instance of the Markov compression task.
+    
+    Args:
+        vocab_size (int, optional): The size of the vocabulary.
+        seq_len (int, optional): The length of the generated sequence.
+        noise_vocab_size (int, optional): The size of the noise vocabulary (will be subtracted from vocab_size).
+        frac_noise (float, optional): The fraction of noise tokens in the sequence.
+        rng (np.random.Generator, optional): The random number generator to use if provided.
+        target_ignore_idx (int, optional): Index used in targets to indicate which entries to ignore.
+        
+    Returns:
+        tuple: Inputs and targets.    
+    """
+
+    if not exists(rng):
+        rng = np.random.default_rng()
+
+    # generate inputs/targets:
+    compression_token = vocab_size - 1
+    non_special_vocab_size = vocab_size - 1
+    non_special_vocab_size -= noise_vocab_size
+    vocab = np.arange(non_special_vocab_size)
+    #inputs = rng.choice(vocab, size=(seq_len-1,), replace=True).reshape(-1)
+    from scipy.special import softmax 
+    temperature = 0.01
+    logits = rng.random((non_special_vocab_size, non_special_vocab_size))
+    matrix = np.array([
+        softmax(row / temperature) for row in logits
+    ])
+    #matrix = matrix / matrix.sum(axis=1, keepdims=True)
+
+    inputs = []
+    current_token = rng.choice(vocab)
+    inputs.append(current_token)
+
+    for _ in range(seq_len - 2):
+        probs = matrix[current_token]
+        next_token = rng.choice(vocab, p=probs)
+        inputs.append(next_token)
+        current_token = next_token
+
+    inputs = np.concatenate([np.array(inputs), np.array([compression_token])])
+    targets = np.array(inputs)
+
+    # add noise:
+    if frac_noise > 0:
+        assert noise_vocab_size > 0, "noise vocab size must be > 0 if frac_noise > 0"
+        noise_vocab = np.arange(non_special_vocab_size, non_special_vocab_size+noise_vocab_size)
+        for i in range(seq_len-1): # exclude compression token
+            if rng.random() < frac_noise:
+                inputs[i:(i+1)] = rng.choice(noise_vocab)
+                targets[i:(i+1)] = target_ignore_idx
+
+    return inputs, targets
+
 
 # copying:
 
@@ -598,3 +730,117 @@ def generate_selective_copying_instance(
         target_ignore_idx=target_ignore_idx,
         selective=True
     )
+
+# # group sequence:
+from abstract_algebra.finite_algebras import (
+    FiniteAlgebra,
+    generate_cyclic_group,
+    generate_symmetric_group,
+)
+
+def group_reduce(lhs: str | int, rhs: int, G) -> int: 
+    """Reduce a sequence of group elements to a single element."""
+    if isinstance(lhs, str):
+        prod = G.op(lhs, G.elements[rhs])
+    else:
+        prod = G.op(G.elements[lhs], G.elements[rhs])
+
+    return G.elements.index(prod)
+
+def generate_group_S_instance(
+    vocab_size: int = 4,
+    seq_len: int = 4,
+    rng: np.random.Generator = None,
+    *args, **kwargs
+) -> tp.Tuple[np.array, np.array]:
+    """
+    Generate an instance of the group task.
+
+    Args:
+        vocab_size (int, optional): The number of elements in the group.
+        seq_len (int, optional): The length of the generated sequence.
+        rng (np.random.Generator, optional): The random number generator to use if provided.
+
+    Returns:
+        tuple: Inputs and targets.
+    """
+    
+    if not exists(rng):
+        rng = np.random.default_rng()
+
+    group=generate_symmetric_group(vocab_size)
+    num_elements = len(group.elements)
+    #num_unique_sequences = num_elements**seq_len
+
+    inputs=rng.choice(range(num_elements), size=seq_len)
+    acc = 0
+    targets = [acc := group_reduce(lhs=acc, rhs=x, G=group) for x in inputs]
+    targets = np.array(targets)
+
+    return inputs, targets
+
+def generate_group_Z_instance(
+    vocab_size: int = 4,
+    seq_len: int = 4,
+    rng: np.random.Generator = None,
+    *args, **kwargs
+) -> tp.Tuple[np.array, np.array]:
+    """
+    Generate an instance of the copying task.
+
+    Args:
+        vocab_size (int, optional): The number of elements in the group.
+        seq_len (int, optional): The length of the generated sequence.
+        rng (np.random.Generator, optional): The random number generator to use if provided.
+
+    Returns:
+        tuple: Inputs and targets.
+    """
+    
+    if not exists(rng):
+        rng = np.random.default_rng()
+
+    group=generate_cyclic_group(vocab_size)
+    num_elements = len(group.elements)
+    #num_unique_sequences = num_elements**seq_len
+
+    inputs=rng.choice(range(num_elements), size=seq_len)
+    acc = 0
+    targets = [acc := group_reduce(lhs=acc, rhs=x, G=group) for x in inputs]
+    targets = np.array(targets)
+
+    return inputs, targets
+
+def generate_group_A_instance(
+    vocab_size: int = 4,
+    seq_len: int = 4,
+    rng: np.random.Generator = None,
+    *args, **kwargs
+) -> tp.Tuple[np.array, np.array]:
+    """
+    Generate an instance of the copying task.
+
+    Args:
+        vocab_size (int, optional): The number of elements in the group.
+        seq_len (int, optional): The length of the generated sequence.
+        rng (np.random.Generator, optional): The random number generator to use if provided.
+
+    Returns:
+        tuple: Inputs and targets.
+    """
+    
+    if not exists(rng):
+        rng = np.random.default_rng()
+
+    group=generate_symmetric_group(vocab_size)
+    group = group.commutator_subalgebra()
+    group.name = f"A{vocab_size}"
+    num_elements = len(group.elements)
+    #num_unique_sequences = num_elements**seq_len
+
+    inputs=rng.choice(range(num_elements), size=seq_len)
+    acc = 0
+    targets = [acc := group_reduce(lhs=acc, rhs=x, G=group) for x in inputs]
+    targets = np.array(targets)
+
+    return inputs, targets

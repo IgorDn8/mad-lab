@@ -36,6 +36,29 @@ def flatten_diag_outer_product_off1(x, y):
 # https://arxiv.org/abs/2402.04347
 
 
+class HedgehoghDFeatureMap(nn.Module):
+
+    def __init__(
+        self,
+        head_dim: int
+    ) -> HedgehoghDFeatureMap:
+        super().__init__()
+        # Trainable map
+        self.layer = nn.Linear(head_dim, head_dim)
+        self.init_weights_()
+
+    def init_weights_(self):
+        """Initialize trainable map as identity"""
+        with torch.no_grad():
+            identity = torch.eye(*self.layer.weight.shape[-2:], dtype=torch.float)
+            self.layer.weight.copy_(identity.to(self.layer.weight))
+        nn.init.zeros_(self.layer.bias)
+#        nn.init.xavier_uniform_(self.layer.weight, gain=0.1)
+
+    def forward(self, x: torch.Tensor):
+        x = self.layer(x)  # shape b, h, l, d
+        return torch.cat([5*x, 4*x, 3*x, 2*x, 1*x], dim=-1).softmax(-1)
+    
 class HedgehogFeatureMap(nn.Module):
 
     def __init__(

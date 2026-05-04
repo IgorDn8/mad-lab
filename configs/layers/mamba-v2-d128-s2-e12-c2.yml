@@ -1,0 +1,4 @@
+dim: 128
+d_state: 2
+d_conv: 2
+expand: 12

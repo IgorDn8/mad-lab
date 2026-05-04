@@ -3,10 +3,13 @@ import argparse
 import shutil
 import torch
 import random
+import sys
 
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
+from pytorch_lightning.utilities.model_summary import ModelSummary
+#from pytorch_lightning.pytorch.profilers import SimpleProfiler, AdvancedProfiler
 
 from torch.utils.data import DataLoader
 
@@ -15,6 +18,9 @@ from mad.paths import make_log_path
 from mad.data import generate_data
 from mad.model import PLModelWrap
 from mad.registry import task_registry, layer_registry
+from mad.helpers import compute_vocab_size
+
+# torch._dynamo.config.suppress_errors = True
 
 
 def get_args():
@@ -36,7 +42,7 @@ def get_args():
     # model settings:
     parser.add_argument('--layers', nargs='+', default=['mh-attention', 'swiglu', 'mh-attention', 'swiglu'], help='layers of model')
     parser.add_argument('--backbone', type=str, default='language-model', help='model backbone used for layers')
-    parser.add_argument('--dim', type=int, default=128, help='width of the model (will be enforced for all layers)')
+    parser.add_argument('--dim', type=int, default=128, help='embedding dimension')
     
     # training settings:
     parser.add_argument('--batch-size', type=int, default=128, help='batch size for training and evaluation')
@@ -48,8 +54,10 @@ def get_args():
     parser.add_argument('--plateau-patience', type=int, default=5, help='patience for plateau scheduler (in training epochs)')
     parser.add_argument('--plateau-factor', type=float, default=0.9, help='learning rate reduce factor for plateau scheduler')
     parser.add_argument('--accelerator', type=str, default='cuda', help='accelerator used for training')
-    parser.add_argument('--devices', type=int, default=1, help='number of devices to use for training')
+    parser.add_argument('--devices', type=str, default='0,', help='number of devices to use for training')
     parser.add_argument('--precision', type=str, default='bf16', help='precision of the model (see PyTorch Lightning Trainer docs for details)')
+    parser.add_argument('--compile', action=argparse.BooleanOptionalAction, default=False, help='if True, model is compiled with autotune max')
+
 
     # optimizer settings:
     parser.add_argument('--lr', type=float, default=5e-4, help='learning rate for optimizer')
@@ -62,6 +70,9 @@ def get_args():
     parser.add_argument('--log-to-wandb', action=argparse.BooleanOptionalAction, default=False, help='if True, metrics are logged to Weights & Biases')
     parser.add_argument('--wandb-project', type=str, default='MAD', help='name of the Weights & Biases project to log to')
     parser.add_argument('--save-checkpoints', action=argparse.BooleanOptionalAction, default=True, help='if True, final and best model checkpoints are saved in the log directory')
+    #parser.add_argument('--save-steps', type=int, default=None, help='save checkpoint every n steps')
+    parser.add_argument('--profile', action=argparse.BooleanOptionalAction, default=False, help='if True, profiler infor is written into log file')
+
 
     # data:
     parser.add_argument('--data-path', type=str, default='./data', help='path where generated data are stored')
@@ -91,7 +102,8 @@ def train(
     log_to_csv: bool = True,
     log_to_wandb: bool = False,
     wandb_project: str = 'MAD',
-    save_checkpoints: bool = True
+    save_checkpoints: bool = True,
+    profile: bool = False,
 ) -> pd.DataFrame:
     """
     Train a model with given configuration and log results.
@@ -128,8 +140,12 @@ def train(
 
     # PyTorch Lightning Model Wrap.
 
-    model_wrapped = PLModelWrap(model=model, mad_config=mad_config)
+    # compile the model
+    if mad_config.compile:
+       print("compiling the model...")
+       model = torch.compile(model, mode="max-autotune") # requires PyTorch 2.0
 
+    model_wrapped = PLModelWrap(model=model, mad_config=mad_config)
     # Make Data.
 
     data = generate_data(
@@ -142,6 +158,11 @@ def train(
         num_workers=mad_config.num_data_workers
     )
 
+    print("Instance \n")
+    print(mad_config.instance_fn)
+    print("fn_kwargs \n")
+    print(mad_config.instance_fn_kwargs)
+
     # Make Dataloaders.
         
     train_dl = DataLoader(
@@ -149,7 +170,8 @@ def train(
         batch_size=mad_config.batch_size,
         shuffle=True,
         num_workers=mad_config.num_data_workers,
-        persistent_workers=mad_config.persistent_data_workers and mad_config.num_data_workers>0
+        persistent_workers=mad_config.persistent_data_workers and mad_config.num_data_workers>0,
+        drop_last=profile,
     )
 
     test_dl = DataLoader(
@@ -157,10 +179,14 @@ def train(
         batch_size=mad_config.batch_size,
         shuffle=False,
         num_workers=mad_config.num_data_workers,
-        persistent_workers=mad_config.persistent_data_workers and mad_config.num_data_workers>0
+        persistent_workers=mad_config.persistent_data_workers and mad_config.num_data_workers>0,
+        drop_last=profile,
     )
-
     # Make Loggers & Callbacks.
+    #print(next(iter(test_dl))[0][0:4])
+    # print(next(iter(test_dl))[0][0:4])
+    # print(next(iter(test_dl))[1][0:4])
+    # sys.exit(0)
     
     early_stop = pl.callbacks.EarlyStopping(
         monitor='test/Accuracy_epoch',
@@ -189,6 +215,14 @@ def train(
         )
         callbacks += [checkpoint_best, checkpoint_last]
 
+        # if save_steps:
+        #     checkpoint_step = pl.callbacks.ModelCheckpoint(
+        #         every_n_train_steps=save_steps,
+        #         dirpath=os.path.join(log_path, 'checkpoints'),
+        #         filename="step_{step}",
+        #     )
+        #     callbacks += [checkpoint_step]
+
     loggers = []
     if log_to_csv and log_path is not None:
         loggers.append(
@@ -213,6 +247,10 @@ def train(
     torch.set_float32_matmul_precision('high')
 
     # Make Trainer.
+    if profile:
+        profiler = SimpleProfiler(dirpath=log_path, filename="perf_logs") #os.path.join(log_path,
+    else:
+        profiler = None
 
     trainer = pl.Trainer(
         max_epochs=mad_config.epochs,
@@ -222,16 +260,23 @@ def train(
         enable_checkpointing=mad_config.save_checkpoints,
         callbacks=callbacks,
         precision=mad_config.precision,
+        profiler=profiler,
     )
+
+    # save initial configuration before training
+    if save_checkpoints and log_path is not None:
+        trainer.strategy.connect(model_wrapped)
+        trainer.save_checkpoint(os.path.join(log_path, 'checkpoints','init.ckpt'))
 
     # Train.
 
     trainer.fit(model_wrapped, train_dl, test_dl)
-
     # Evaluate Final Performance.
-
     results_train = trainer.validate(dataloaders=train_dl)[0]
     results_test = trainer.validate(dataloaders=test_dl)[0]
+
+    # saving results
+    param_num = sum(p.numel() for p in model_wrapped.parameters() if p.requires_grad)
     results_df = pd.DataFrame({
         # training data:
         'train_acc': results_train['test/Accuracy_epoch'], # its called "test/..." because we compute results with trainer.validate
@@ -241,6 +286,8 @@ def train(
         'test_acc': results_test['test/Accuracy_epoch'],
         'test_ppl': results_test['test/Perplexity_epoch'],
         'test_loss': results_test['test/Loss_epoch'],
+        # model size
+        'model_size': param_num,
     }, index=[0])
     results_df.to_csv(os.path.join(log_path, 'results.csv'), index=False)
 
@@ -259,6 +306,12 @@ if __name__ == '__main__':
 
     mad_config = MADConfig()
     mad_config.update_from_kwargs(args)
+
+    # compute actual vocab_size for group tasks
+    if "group" in args["task"]:
+        print("Group initialization...")
+        args["vocab_size"]=compute_vocab_size(args["task"],args["vocab_size"])
+        print("Done")
     
     # create model config:
 
@@ -268,6 +321,9 @@ if __name__ == '__main__':
     model_id = '-'.join(layer_registry[l]['shorthand'] for l in model_config.layers)
 
     # train model:
+
+#    print(model)
+#    sys.exit(0)
 
     log_path = make_log_path(
         base_path=args['log_base_path'],
@@ -281,5 +337,6 @@ if __name__ == '__main__':
         log_to_csv=args['log_to_csv'],
         log_to_wandb=args['log_to_wandb'],
         wandb_project=args['wandb_project'],
-        save_checkpoints=args['save_checkpoints']
+        save_checkpoints=args['save_checkpoints'],
+        profile=args["profile"],
     )

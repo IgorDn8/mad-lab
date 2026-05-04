@@ -1,5 +1,7 @@
 # $\text{MAD}$-Lab
 
+This repository is a fork of the original MAD-Lab repository that provides code for the paper "Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks". This work adds BD-LRU, H-LRU, mamba2, deltaProduct and deltaNet to the available models, and introduces a new synthetic task corresponding to a permutation task (symmetry group S) that evaluates state-tracking abilities.
+
 <div align="center">
 <img src="./assets/title-image.png" alt="title" width=750"/>
     

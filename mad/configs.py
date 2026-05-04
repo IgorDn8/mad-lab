@@ -64,6 +64,7 @@ class MADConfig(BaseConfig):
     devices: int = 1
     save_checkpoints: bool = True 
     precision: str = 'bf16'
+    compile: bool = False
 
     # misc:
     seed: int = 12345
@@ -133,13 +134,22 @@ class MADModelConfig(BaseConfig):
     position_embeds: tp.Callable = None
     embed_drop_rate: float = 0.0
 
-    def build_model_from_registry(self):
+    def build_model_from_registry(self,save_dynamics=False):
         """build a model from components registered in MAD"""
         layer_configs = []
         for layer in self.layers:
             _cfg = load_yml(os.path.join(get_base_path(), layer_registry[layer]['cfg']))
             _cfg['dim'] = self.dim
             _cfg['max_length'] = self.max_length
+            if save_dynamics and 'implementation' in _cfg:
+                print(_cfg)                
+                if _cfg['implementation']=='hopscan_opt':
+                    _cfg['implementation']='orig_save_dynamics'
+                elif '_hopscan_opt' in _cfg['implementation']:
+                    _cfg['implementation']=_cfg['implementation'][:-12]+'_save_dynamics'
+                else:
+                    _cfg['implementation']=_cfg['implementation']+'_save_dynamics'
+                print(_cfg)
             layer_configs.append(_cfg)
         model = model_registry[self.backbone](
             dim=self.dim,

@@ -23,7 +23,7 @@ class LanguageModel(nn.Module):
         vocab_size: int,
         layers: list,
         layer_cfgs: list,
-        dim: int = 128,
+        dim: int,
         max_length: int = 1280,
         norm: nn.Module = RMSNorm,
         position_embeds: tp.Callable = None,
@@ -33,6 +33,7 @@ class LanguageModel(nn.Module):
         super().__init__()
 
         assert len(layer_cfgs)==len(layers), 'number of layer configs must be equal number of layers'
+        print([cfg['dim'] for cfg in layer_cfgs])
         assert all(cfg['dim']==dim for cfg in layer_cfgs), 'all layer configs must specify the same dimensionality'
         assert all(cfg['max_length']==max_length for cfg in layer_cfgs), 'all layer configs must have the same max_length'
                 
@@ -72,8 +73,8 @@ class LanguageModel(nn.Module):
 
     def _init_weights(self, m, initializer_range=0.02) -> None:
         if isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, mean=0, std=initializer_range)
             if m.bias is not None:
-                if not getattr(m.bias, "_no_reinit", False):
-                    nn.init.zeros_(m.bias)
+                nn.init.zeros_(m.bias)
         elif isinstance(m, nn.Embedding):
             nn.init.normal_(m.weight, mean=0, std=initializer_range)
