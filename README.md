@@ -1,6 +1,21 @@
 # $\text{MAD}$-Lab
 
-This repository is a fork of the original MAD-Lab repository that provides code for the paper "Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks". This work adds BD-LRU, H-LRU, mamba2, deltaProduct and deltaNet to the available models, and introduces a new synthetic task corresponding to a permutation task (symmetry group S) that evaluates state-tracking abilities.
+This repository is a fork of the original MAD-Lab repository [Mechanistic Design and Scaling of Hybrid Architectures](https://arxiv.org/abs/2403.17844). This repository provides code for the paper "Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks". This work adds BD-LRU, H-LRU, mamba2, deltaProduct and deltaNet to the available models, and introduces a new synthetic task corresponding to a permutation task (symmetry group S) that evaluates state-tracking abilities.
+
+## Running the new models
+Training runs are launched through [train.py](train.py). Layer names are defined in [mad/registry.py](mad/registry.py) and usually match files in [configs/layers/](configs/layers/) without the `.yml` suffix.
+
+For example, to train the selective BD-LRU variant on the new permutation/state-tracking task:
+```bash
+python -m train --task group-S --layers bdlru-sel-wd1-d128-h32 swiglu bdlru-sel-wd1-d128-h32 swiglu
+```
+
+To train the selective H-LRU variant on the same task:
+```bash
+python -m train --task group-S --layers hlru-sel-wd1-d128-h32 swiglu hlru-sel-wd1-d128-h32 swiglu
+```
+
+Use the `group-S` task for the permutation task based on the symmetric group. You can replace the layer names with other registered variants, such as larger `bdlru-sel-*` or `hlru-sel-*` configs, or with non-selective variants when corresponding configs are registered.
 
 <div align="center">
 <img src="./assets/title-image.png" alt="title" width=750"/>
