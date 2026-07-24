@@ -738,14 +738,150 @@ from abstract_algebra.finite_algebras import (
     generate_symmetric_group,
 )
 
-def group_reduce(lhs: str | int, rhs: int, G) -> int: 
-    """Reduce a sequence of group elements to a single element."""
+# Building a finite group (esp. a symmetric group and its commutator subalgebra)
+# is expensive. The original instance functions rebuilt the group on *every*
+# sample, which dominated data-generation time. We instead build each group once
+# and cache it, together with a precomputed Cayley (multiplication) table that
+# turns the per-token reduction into an O(1) integer lookup.
+_GROUP_CACHE: tp.Dict[tp.Tuple[str, int], dict] = {}
+
+# Groups larger than this are not materialized into a full |G| x |G| Cayley
+# table (which costs O(|G|^2) memory); the reduction falls back to a cached
+# element->index map instead. Group tasks in practice use tiny groups (e.g. S5
+# has 120 elements), so this threshold is never hit in normal use.
+_MAX_CAYLEY_ELEMENTS = 2048
+
+
+def _build_group(kind: str, n: int) -> FiniteAlgebra:
+    """Construct a finite group from a kind identifier ('S', 'Z', 'A') and degree n."""
+    if kind == 'S':
+        return generate_symmetric_group(n)
+    elif kind == 'Z':
+        return generate_cyclic_group(n)
+    elif kind == 'A':
+        s_n = generate_symmetric_group(n)
+        a_n = s_n.commutator_subalgebra()
+        a_n.name = f"A{n}"
+        return a_n
+    else:
+        raise ValueError("Group kind must be one of 'S', 'Z', or 'A'")
+
+
+def get_cached_group(kind: str, n: int) -> dict:
+    """
+    Return cached data for the group of the given kind and degree.
+
+    The group is built only once per (kind, n); subsequent calls reuse it.
+
+    Returns:
+        dict with keys:
+            'group' (FiniteAlgebra): the group,
+            'num_elements' (int): |G|,
+            'elem_to_idx' (dict): element -> index map,
+            'cayley' (np.ndarray | None): |G| x |G| table with
+                cayley[i, j] = index(G.op(elements[i], elements[j])),
+                or None for very large groups.
+    """
+    key = (kind, n)
+    if key not in _GROUP_CACHE:
+        group = _build_group(kind, n)
+        elements = group.elements
+        num_elements = len(elements)
+        elem_to_idx = {e: i for i, e in enumerate(elements)}
+
+        cayley = None
+        if num_elements <= _MAX_CAYLEY_ELEMENTS:
+            cayley = np.empty((num_elements, num_elements), dtype=np.int64)
+            for i, ei in enumerate(elements):
+                for j, ej in enumerate(elements):
+                    cayley[i, j] = elem_to_idx[group.op(ei, ej)]
+
+        _GROUP_CACHE[key] = {
+            'group': group,
+            'num_elements': num_elements,
+            'elem_to_idx': elem_to_idx,
+            'cayley': cayley,
+        }
+    return _GROUP_CACHE[key]
+
+
+def group_reduce(lhs: str | int, rhs: int, G) -> int:
+    """Reduce a sequence of group elements to a single element (kept for backwards compat)."""
     if isinstance(lhs, str):
         prod = G.op(lhs, G.elements[rhs])
     else:
         prod = G.op(G.elements[lhs], G.elements[rhs])
 
     return G.elements.index(prod)
+
+
+def prefix_products(inputs: np.ndarray, group_data: dict) -> np.ndarray:
+    """
+    Compute the running (prefix) product of a sequence of group-element indices.
+
+    targets[t] = index of (elements[inputs[0]] * ... * elements[inputs[t]]),
+    with the reduction seeded from accumulator index 0 (matching the original
+    implementation).
+
+    Works on a 1D sequence or a 2D batch of sequences (reduction along axis -1).
+    """
+    inputs = np.asarray(inputs)
+    cayley = group_data['cayley']
+    group = group_data['group']
+    elem_to_idx = group_data['elem_to_idx']
+
+    if inputs.ndim == 1:
+        acc = 0
+        targets = np.empty(inputs.shape[0], dtype=np.int64)
+        if cayley is not None:
+            for t, x in enumerate(inputs):
+                acc = cayley[acc, x]
+                targets[t] = acc
+        else:
+            elements = group.elements
+            for t, x in enumerate(inputs):
+                acc = elem_to_idx[group.op(elements[acc], elements[x])]
+                targets[t] = acc
+        return targets
+
+    # batched (num_sequences, seq_len): vectorized scan along the sequence axis
+    num_seq, seq_len = inputs.shape
+    acc = np.zeros(num_seq, dtype=np.int64)
+    targets = np.empty((num_seq, seq_len), dtype=np.int64)
+    if cayley is not None:
+        for t in range(seq_len):
+            acc = cayley[acc, inputs[:, t]]
+            targets[:, t] = acc
+    else:
+        elements = group.elements
+        for t in range(seq_len):
+            acc = np.array(
+                [elem_to_idx[group.op(elements[a], elements[x])]
+                 for a, x in zip(acc, inputs[:, t])],
+                dtype=np.int64,
+            )
+            targets[:, t] = acc
+    return targets
+
+
+def _generate_group_instance(
+    kind: str,
+    vocab_size: int,
+    seq_len: int,
+    rng: np.random.Generator = None,
+) -> tp.Tuple[np.array, np.array]:
+    """Shared fast implementation for the group tasks (uses the cached group)."""
+    if not exists(rng):
+        rng = np.random.default_rng()
+
+    group_data = get_cached_group(kind, vocab_size)
+    num_elements = group_data['num_elements']
+
+    inputs = rng.choice(range(num_elements), size=seq_len)
+    targets = prefix_products(inputs, group_data)
+
+    return inputs, targets
+
 
 def generate_group_S_instance(
     vocab_size: int = 4,
@@ -754,30 +890,18 @@ def generate_group_S_instance(
     *args, **kwargs
 ) -> tp.Tuple[np.array, np.array]:
     """
-    Generate an instance of the group task.
+    Generate an instance of the symmetric-group (S_n) task.
 
     Args:
-        vocab_size (int, optional): The number of elements in the group.
+        vocab_size (int, optional): The degree n of the symmetric group S_n.
         seq_len (int, optional): The length of the generated sequence.
         rng (np.random.Generator, optional): The random number generator to use if provided.
 
     Returns:
         tuple: Inputs and targets.
     """
-    
-    if not exists(rng):
-        rng = np.random.default_rng()
+    return _generate_group_instance('S', vocab_size, seq_len, rng)
 
-    group=generate_symmetric_group(vocab_size)
-    num_elements = len(group.elements)
-    #num_unique_sequences = num_elements**seq_len
-
-    inputs=rng.choice(range(num_elements), size=seq_len)
-    acc = 0
-    targets = [acc := group_reduce(lhs=acc, rhs=x, G=group) for x in inputs]
-    targets = np.array(targets)
-
-    return inputs, targets
 
 def generate_group_Z_instance(
     vocab_size: int = 4,
@@ -786,30 +910,18 @@ def generate_group_Z_instance(
     *args, **kwargs
 ) -> tp.Tuple[np.array, np.array]:
     """
-    Generate an instance of the copying task.
+    Generate an instance of the cyclic-group (Z_n) task.
 
     Args:
-        vocab_size (int, optional): The number of elements in the group.
+        vocab_size (int, optional): The number of elements in the cyclic group Z_n.
         seq_len (int, optional): The length of the generated sequence.
         rng (np.random.Generator, optional): The random number generator to use if provided.
 
     Returns:
         tuple: Inputs and targets.
     """
-    
-    if not exists(rng):
-        rng = np.random.default_rng()
+    return _generate_group_instance('Z', vocab_size, seq_len, rng)
 
-    group=generate_cyclic_group(vocab_size)
-    num_elements = len(group.elements)
-    #num_unique_sequences = num_elements**seq_len
-
-    inputs=rng.choice(range(num_elements), size=seq_len)
-    acc = 0
-    targets = [acc := group_reduce(lhs=acc, rhs=x, G=group) for x in inputs]
-    targets = np.array(targets)
-
-    return inputs, targets
 
 def generate_group_A_instance(
     vocab_size: int = 4,
@@ -818,29 +930,14 @@ def generate_group_A_instance(
     *args, **kwargs
 ) -> tp.Tuple[np.array, np.array]:
     """
-    Generate an instance of the copying task.
+    Generate an instance of the alternating-group (A_n) task.
 
     Args:
-        vocab_size (int, optional): The number of elements in the group.
+        vocab_size (int, optional): The degree n of the alternating group A_n.
         seq_len (int, optional): The length of the generated sequence.
         rng (np.random.Generator, optional): The random number generator to use if provided.
 
     Returns:
         tuple: Inputs and targets.
     """
-    
-    if not exists(rng):
-        rng = np.random.default_rng()
-
-    group=generate_symmetric_group(vocab_size)
-    group = group.commutator_subalgebra()
-    group.name = f"A{vocab_size}"
-    num_elements = len(group.elements)
-    #num_unique_sequences = num_elements**seq_len
-
-    inputs=rng.choice(range(num_elements), size=seq_len)
-    acc = 0
-    targets = [acc := group_reduce(lhs=acc, rhs=x, G=group) for x in inputs]
-    targets = np.array(targets)
-
-    return inputs, targets
+    return _generate_group_instance('A', vocab_size, seq_len, rng)
