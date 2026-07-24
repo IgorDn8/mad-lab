@@ -1,0 +1,41 @@
+[project]
+name = "mad-lab"
+version = "0.1.0"
+description = "MAD-Lab: mechanistic architecture design with synthetic tasks (fork adding BD-LRU, H-LRU, mamba2, deltaProduct, deltaNet, and group state-tracking tasks)."
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "packaging",
+    "torch",
+    "numpy",
+    "einops",
+    "seaborn",
+    "pandas",
+    "torchmetrics",
+    "pytorch_lightning",
+    "opt_einsum",
+    "ray",
+    "scipy",
+    "wandb",
+    # Required by the vendored abstract_algebra package used for the group-* tasks.
+    "sympy",
+]
+
+[project.optional-dependencies]
+# CUDA-only kernels. These build against your local CUDA toolkit and require a
+# GPU, so they are kept out of the base install. Install with:
+#   uv sync --extra cuda
+cuda = [
+    "flash-attn",
+    "causal-conv1d>=1.2.0",
+    "mamba-ssm",
+]
+
+[tool.uv]
+# flash-attn / mamba-ssm need torch present at build time and don't declare it as
+# a PEP 517 build dependency, so disable build isolation for them.
+no-build-isolation-package = ["flash-attn", "mamba-ssm", "causal-conv1d"]
+
+[tool.setuptools]
+packages = ["mad", "abstract_algebra"]

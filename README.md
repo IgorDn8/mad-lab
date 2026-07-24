@@ -56,13 +56,28 @@ For all details on the MAD synthetic tasks and pipeline, see our recent paper on
 
 ## Quickstart
 ### Setup
-We recommend that you run MAD in a dedicated Python environment (e.g., as provided by [Anconda](https://www.anaconda.com/download)). To install all required dependencies in an Anaconda environment, run:
+We use [uv](https://docs.astral.sh/uv/) to manage the Python environment and dependencies. If you don't have `uv` yet, install it with:
 ```bash
-conda create -n mad-lab python==3.11 -y && conda activate mad-lab
-python -m pip install --trusted-host pypi.python.org -r requirements.txt
-python -m pip install flash-attn causal-conv1d>=1.2.0 mamba-ssm
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-To train models on MAD, you will require access to cuda-capable hardware as many of the architecture components provided in this repository are specifically designed to run on cuda GPUs (such as [FlashAttention](https://github.com/Dao-AILab/flash-attention)).
+
+Then create the environment and install the base dependencies (this reads `pyproject.toml` and creates a `.venv`):
+```bash
+uv sync
+```
+
+The CUDA-only kernels ([FlashAttention](https://github.com/Dao-AILab/flash-attention), `causal-conv1d`, `mamba-ssm`) are kept in an optional `cuda` extra because they build against your local CUDA toolkit and require a GPU. To install them as well:
+```bash
+uv sync --extra cuda
+```
+To train models on MAD, you will require access to cuda-capable hardware as many of the architecture components provided in this repository are specifically designed to run on cuda GPUs (such as [FlashAttention](https://github.com/Dao-AILab/flash-attention)). Note that most entrypoints (including `train.py` and the data-generation scripts) import the layer registry, so they require the `cuda` extra to be installed.
+
+Run any command inside the environment with `uv run`, e.g.:
+```bash
+uv run python -m train --task group-S --layers bdlru-sel-wd1-d128-h32 swiglu bdlru-sel-wd1-d128-h32 swiglu
+```
+
+> **Group tasks (`group-S` / `group-Z` / `group-A`)** rely on the finite-group utilities from [alreich/abstract_algebra](https://github.com/alreich/abstract_algebra) (MIT). Since that project isn't published on PyPI and isn't packaged as an importable `abstract_algebra` module, the required modules are vendored under [`abstract_algebra/`](abstract_algebra/) and their only extra runtime dependency (`sympy`) is included in the base install. No additional setup is needed.
 
 
 ### Training
@@ -213,11 +228,14 @@ This will return a pandas series (`mad_scores`) with a MAD score for your model 
 ┣ paths.py -> some tools to make and parse paths
 ┗ registry.py -> registry for all layers and tasks of this repository
 
+/abstract_algebra -> vendored finite-group utilities (MIT) used by the group-* tasks
+
 benchmark.py -> benchmarking models on MAD
 train.py -> training a model on individual tasks
 .gitignore.py
 README.md
-requirements.txt
+pyproject.toml -> uv project definition (dependencies + optional cuda extra)
+requirements.txt -> legacy dependency list (kept in sync with pyproject.toml)
 ```
 
 

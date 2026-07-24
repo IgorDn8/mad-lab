@@ -10,3 +10,4 @@ opt_einsum
 ray
 scipy
 wandb
+sympy
