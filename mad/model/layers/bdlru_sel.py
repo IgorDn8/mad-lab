@@ -13,9 +13,49 @@ from einops import rearrange
 import sys
 
 try:
-    from mad.model.layers.ops.scans.hopscan import hopscan, hopscan_opt
+    from mad.model.layers.ops.scans.hopscan import hopscan_opt
 except ImportError:
-    hopscan, hopscan_opt = None, None
+    hopscan_opt = None
+
+try:
+    from mad.model.layers.ops.scans.affine_scan import scan_parallel as affine_scan_parallel
+except ImportError:
+    affine_scan_parallel = None
+
+try:
+    from mad.model.layers.ops.scans.triton_scans import triton_affine_scan
+except ImportError:
+    triton_affine_scan = None
+
+# implementation string -> triton scan kernel mode
+_TRITON_SCAN_MODES = {
+    "triton_sequential": "sequential",
+    "triton_persistent": "persistent",
+    "triton_parallel_blelloch": "blelloch",
+    "triton_chunked": "chunked",
+    # picks chunked/persistent/sequential from (batch*hidden_dim, T, window_dim)
+    "triton_auto": "auto",
+}
+
+
+def _hopscan_custom_recurrence(gates: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+    """BD-LRU ``hopscan_custom`` recurrence: softmax gating + custom hopscan scan.
+
+    Returns the pre-projection hidden state (B, T, N, m). Wrapped by
+    ``torch.compile`` below to form the ``custom_hopscan_autotune`` variant.
+    """
+    A_t = torch.softmax(gates, -1)          # B T N m m+1
+    a0v = A_t[..., -1] * v                   # B T N m
+    A_t = A_t[..., :-1]                      # B T N m m
+    return hopscan_opt(a0v, A_t)             # B T N m
+
+
+# max-autotune build of the recurrence above (torch.compile is lazy, so importing
+# this module never triggers a compile). None when hopscan_opt is unavailable.
+_hopscan_custom_recurrence_autotune = (
+    torch.compile(_hopscan_custom_recurrence, mode="max-autotune", dynamic=False)
+    if hopscan_opt is not None else None
+)
 
 # @torch.compile(mode="max-autotune", dynamic=False)
 class BDLRU_sel(nn.Module):
@@ -142,25 +182,7 @@ class BDLRU_sel(nn.Module):
             #sys.exit(0)
         #     
         #  
-        elif self.implementation == "hopscan":
-
-            #b t n*h
-            A_qk = torch.softmax(gates,-1) # B T N H H+1
-            nl = A_qk[:,:,:,:,-1]*v[:,:,:,:] # B T N H 
-            A_qk = A_qk[:,:,:,:,:-1] # B T N H H
-
-            # prepare for hopscan
-            nl=nl.permute(0,2,3,1).reshape(B*self.hidden_dim,self.window_dim,T) # B*N H T
-            A_qk = A_qk.permute(0,2,4,3,1).reshape(B*self.hidden_dim,self.window_dim,self.window_dim,T) # B*N H H' T
-
-            y=hopscan(nl, A_qk) # B*N H T
-
-            # reshape back 
-            y=y.reshape(B,self.hidden_dim*self.window_dim,T).permute(0,2,1) # B T N*H
-
-            y=self.proj_out(y)
-
-        elif self.implementation == "hopscan_opt":
+        elif self.implementation == "hopscan_custom":
             
             # softmax normalization of coeff A and a_0
             A_t = torch.softmax(gates,-1) # B T N m m+1
@@ -177,6 +199,63 @@ class BDLRU_sel(nn.Module):
 
             # out projection from hidden state (later it goes to mlp)
             y=self.proj_out(y) # B T N
+
+        elif self.implementation == "custom_hopscan_autotune":
+
+            # identical recurrence to `hopscan_custom`, but the gating + custom
+            # hopscan scan is wrapped in torch.compile(mode="max-autotune",
+            # dynamic=False) so inductor can fuse the surrounding ops.
+            if _hopscan_custom_recurrence_autotune is None:
+                raise ImportError("hopscan_opt unavailable; cannot build custom_hopscan_autotune")
+            y = _hopscan_custom_recurrence_autotune(gates, v) # B T N m
+
+            # reshape back
+            y = y.reshape(B,T,self.hidden_dim*self.window_dim) # B T N*m
+
+            # out projection from hidden state (later it goes to mlp)
+            y = self.proj_out(y) # B T N
+
+        elif self.implementation == "affine_scan_torch_impl":
+
+            # softmax normalization of coeff A and a_0 (same gating as `orig`)
+            A_t = torch.softmax(gates,-1) # B T N m m+1
+            # gated input a_0*v
+            a0v = A_t[:,:,:,:,-1]*v[:,:,:,:] # B T N m
+            # transition matrix A_t
+            A_t = A_t[:,:,:,:,:-1] # B T N m m
+
+            # parallel affine scan (associative_scan over time, autograd through HOP).
+            # scan_parallel(W, x) solves h_t = W_t @ h_{t-1} + x_t.
+            y=affine_scan_parallel(A_t, a0v) # B T N m
+
+            # reshape back
+            y=y.reshape(B,T,self.hidden_dim*self.window_dim) # B T N*m
+
+            # out projection from hidden state (later it goes to mlp)
+            y=self.proj_out(y) # B T N
+
+        elif self.implementation in _TRITON_SCAN_MODES:
+
+            # softmax normalization of coeff A and a_0 (same gating as `orig`)
+            A_t = torch.softmax(gates,-1) # B T N m m+1
+            # gated input a_0*v
+            a0v = A_t[:,:,:,:,-1]*v[:,:,:,:] # B T N m
+            # transition matrix A_t
+            A_t = A_t[:,:,:,:,:-1] # B T N m m
+
+            # triton affine scan expects a flattened (batch*block) layout
+            BB = B*self.hidden_dim
+            A_bb = A_t.permute(0,2,1,3,4).reshape(BB, T, self.window_dim, self.window_dim)
+            b_bb = a0v.permute(0,2,1,3).reshape(BB, T, self.window_dim)
+
+            y = triton_affine_scan(A_bb, b_bb, _TRITON_SCAN_MODES[self.implementation]) # BB T m
+
+            # reshape back
+            y = y.reshape(B, self.hidden_dim, T, self.window_dim).permute(0,2,1,3)
+            y = y.reshape(B, T, self.hidden_dim*self.window_dim) # B T N*m
+
+            # out projection from hidden state (later it goes to mlp)
+            y = self.proj_out(y) # B T N
 
         elif self.implementation == "sigmoid_l1":
 
@@ -229,7 +308,7 @@ class BDLRU_sel(nn.Module):
             y=torch.stack(y, dim=1).reshape(B, T, self.hidden_dim*self.window_dim) # B T N*H
             y=self.proj_out(y)
 
-        elif self.implementation == "sigmoid_l1_hopscan_opt":
+        elif self.implementation == "sigmoid_l1_hopscan_custom":
 
             #b t n*h
             A_qk = torch.sigmoid(gates) # B T N H H+1
@@ -298,7 +377,7 @@ class BDLRU_sel(nn.Module):
             y=torch.stack(y, dim=1).reshape(B, T, self.hidden_dim*self.window_dim) # B T N*H
             y=self.proj_out(y)
 
-        elif self.implementation == "relu_l1_hopscan_opt":
+        elif self.implementation == "relu_l1_hopscan_custom":
 
             #b t n*h
 
@@ -366,7 +445,7 @@ class BDLRU_sel(nn.Module):
             y=torch.stack(y, dim=1).reshape(B, T, self.hidden_dim*self.window_dim) # B T N*H
             y=self.proj_out(y)
 
-        elif self.implementation == "nonorm_hopscan_opt":
+        elif self.implementation == "nonorm_hopscan_custom":
 
             #b t n*h
             A_qk = gates# B T N H H+1
@@ -433,7 +512,7 @@ class BDLRU_sel(nn.Module):
             y=torch.stack(y, dim=1).reshape(B, T, self.hidden_dim*self.window_dim) # B T N*H
             y=self.proj_out(y)
 
-        elif self.implementation == "tanh_l1_hopscan_opt":
+        elif self.implementation == "tanh_l1_hopscan_custom":
 
             #b t n*h
             A_qk = torch.tanh(gates) # B T N H H+1
@@ -500,7 +579,7 @@ class BDLRU_sel(nn.Module):
             y=torch.stack(y, dim=1).reshape(B, T, self.hidden_dim*self.window_dim) # B T N*H
             y=self.proj_out(y)
 
-        elif self.implementation == "lin_l1_hopscan_opt":
+        elif self.implementation == "lin_l1_hopscan_custom":
 
             #b t n*h
             A_qk = gates # B T N H H+1

@@ -11,9 +11,60 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 try:
-    from mad.model.layers.ops.scans.hopscan import hopscan, hopscan_opt
+    from mad.model.layers.ops.scans.hopscan import hopscan_opt
 except ImportError:
-    hopscan, hopscan_opt = None, None
+    hopscan_opt = None
+
+try:
+    from mad.model.layers.ops.scans.triton_scans import triton_affine_scan
+except ImportError:
+    triton_affine_scan = None
+
+# implementation string -> triton scan kernel mode
+_TRITON_SCAN_MODES = {
+    "triton_sequential": "sequential",
+    "triton_persistent": "persistent",
+    "triton_parallel_blelloch": "blelloch",
+    "triton_chunked": "chunked",
+    # picks chunked/persistent/sequential from (batch*hidden_dim, T, window_dim)
+    "triton_auto": "auto",
+}
+
+
+def _companion_A_and_b(A_temp: torch.Tensor, gates: torch.Tensor, v: torch.Tensor):
+    """Build the H-LRU companion transition in the *orig* layout.
+
+    ``orig`` stores coeffs in the first column with 1's on the superdiagonal and
+    applies the right-multiply recurrence ``h <- h @ A + b``. Parallel scans
+    (hopscan / triton) implement the left-multiply form ``h <- A @ h + b``, so
+    callers must pass ``A.transpose(-1, -2)`` into those kernels.
+    """
+    m = A_temp.shape[0]
+    a0v = F.pad(gates[..., -1:] * v.unsqueeze(-1), (0, m - 1))  # B T N m
+    A = A_temp + F.pad(gates[..., :-1].unsqueeze(-1), (0, m - 1))  # B T N m m
+    return A, a0v
+
+
+def _hopscan_custom_recurrence(
+    gates: torch.Tensor, v: torch.Tensor, A_temp: torch.Tensor
+) -> torch.Tensor:
+    """Softmax-gated H-LRU recurrence via hopscan (matches ``orig``).
+
+    Returns the pre-projection state (B, T, N, m). Wrapped by ``torch.compile``
+    below for the ``custom_hopscan_autotune`` variant.
+    """
+    A_t = torch.softmax(gates, -1)  # B T N m+1
+    A_t, a0v = _companion_A_and_b(A_temp, A_t, v)
+    # left-multiply scan needs the transpose of orig's companion layout
+    return hopscan_opt(a0v, A_t.transpose(-1, -2))  # B T N m
+
+
+_hopscan_custom_recurrence_autotune = (
+    torch.compile(_hopscan_custom_recurrence, mode="max-autotune", dynamic=False)
+    if hopscan_opt is not None
+    else None
+)
+
 
 # @torch.compile(mode="max-autotune", dynamic=False)
 class HLRU_sel(nn.Module):
@@ -86,39 +137,40 @@ class HLRU_sel(nn.Module):
             y=torch.stack(y, dim=1)
             y=y.reshape(B,T,self.hidden_dim*self.window_dim)
             
-        elif self.implementation == "hopscan":
-            #b h t c
-            #hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
-            #print(hidden_x.shape)
-            A_qk = torch.softmax(gates,-1) # B T C WD+1
-            nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
-            A_qk = self.A_temp + F.pad(A_qk[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD' WD
+        elif self.implementation == "hopscan_custom":
 
-            # prepare for hopscan
-            nl=nl.permute(0,2,3,1).reshape(B*self.hidden_dim,self.window_dim,T) # B*C WD T
-            A_qk = A_qk.permute(0,2,4,3,1).reshape(B*self.hidden_dim,self.window_dim,self.window_dim,T) # B*C WD WD' T 
+            A_t = torch.softmax(gates, -1)  # B T N m+1
+            A_t, a0v = _companion_A_and_b(self.A_temp, A_t, v)
+            # hopscan does h <- A @ h + b; transpose matches orig's h <- h @ A + b
+            y = hopscan_opt(a0v, A_t.transpose(-1, -2))  # B T N m
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
-            y=hopscan(nl, A_qk)[:,0,:] # B*C WD T
+        elif self.implementation == "custom_hopscan_autotune":
 
-            # reshape back 
-            y=y.reshape(B,self.hidden_dim,T).permute(0,2,1) 
-        
-        elif self.implementation == "hopscan_opt":
+            # identical recurrence to `hopscan_custom`, with gating + hopscan
+            # wrapped in torch.compile(mode="max-autotune", dynamic=False).
+            if _hopscan_custom_recurrence_autotune is None:
+                raise ImportError(
+                    "hopscan_opt unavailable; cannot build custom_hopscan_autotune"
+                )
+            y = _hopscan_custom_recurrence_autotune(gates, v, self.A_temp)  # B T N m
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
-            # softmax normalization of coeff A and a_0
-            A_t = torch.softmax(gates,-1) # B T N m+1
-            # gated input a_0*v  (input vector is padded with zeros)
-            a0v = F.pad(A_t[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T N m
-            # transition matrix A_t (to get companion form we pad and add A_temp which is structred 1-off diagonal matrix)
-            A_t = self.A_temp + F.pad(A_t[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T N m m
+        elif self.implementation in _TRITON_SCAN_MODES:
 
-            # parallel scan
-            y=hopscan_opt(a0v, A_t) # B T N m
+            A_t = torch.softmax(gates, -1)  # B T N m+1
+            A_t, a0v = _companion_A_and_b(self.A_temp, A_t, v)
+            # triton affine scan is also left-multiply; transpose to match orig
+            A_t = A_t.transpose(-1, -2)
 
-            # reshape back 
-            y=y.reshape(B,T,self.hidden_dim*self.window_dim)
+            BB = B * self.hidden_dim
+            A_bb = A_t.permute(0, 2, 1, 3, 4).reshape(BB, T, self.window_dim, self.window_dim)
+            b_bb = a0v.permute(0, 2, 1, 3).reshape(BB, T, self.window_dim)
 
-            #y=self.proj_out(y) # B T N
+            y = triton_affine_scan(A_bb, b_bb, _TRITON_SCAN_MODES[self.implementation])  # BB T m
+
+            y = y.reshape(B, self.hidden_dim, T, self.window_dim).permute(0, 2, 1, 3)
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
         elif self.implementation == "orig_save_dynamics":
             #b t c
@@ -186,17 +238,12 @@ class HLRU_sel(nn.Module):
             #print(y.shape)
             y=y.reshape(B,T,self.hidden_dim*self.window_dim)
 
-        elif self.implementation == "sigmoid_l1_hopscan_opt":
-                        #b h t c
-            A_qk = torch.sigmoid(gates) # B T C WD+1
-            A_qk = A_qk/torch.sum(A_qk,-1,keepdim=True)
-            nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
-            A_qk = self.A_temp + F.pad(A_qk[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD' WD
-
-            y=hopscan_opt(nl, A_qk) # B T C WD
-
-            # reshape back 
-            y=y.reshape(B,T,self.hidden_dim*self.window_dim)
+        elif self.implementation == "sigmoid_l1_hopscan_custom":
+            A_qk = torch.sigmoid(gates)  # B T C WD+1
+            A_qk = A_qk / torch.sum(A_qk, -1, keepdim=True)
+            A_qk, nl = _companion_A_and_b(self.A_temp, A_qk, v)
+            y = hopscan_opt(nl, A_qk.transpose(-1, -2))  # B T C WD
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
         elif self.implementation == "relu_l1":
             #b t c
@@ -241,17 +288,12 @@ class HLRU_sel(nn.Module):
             #print(y.shape)
             y=y.reshape(B,T,self.hidden_dim*self.window_dim)
 
-        elif self.implementation == "relu_l1_hopscan_opt":
-                        #b h t c
-            A_qk = torch.relu(gates) # B T C WD+1
-            A_qk = A_qk/torch.sum(A_qk+0.001,-1,keepdim=True)
-            nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
-            A_qk = self.A_temp + F.pad(A_qk[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD' WD
-
-            y=hopscan_opt(nl, A_qk) # B T C WD
-
-            # reshape back 
-            y=y.reshape(B,T,self.hidden_dim*self.window_dim)
+        elif self.implementation == "relu_l1_hopscan_custom":
+            A_qk = torch.relu(gates)  # B T C WD+1
+            A_qk = A_qk / torch.sum(A_qk + 0.001, -1, keepdim=True)
+            A_qk, nl = _companion_A_and_b(self.A_temp, A_qk, v)
+            y = hopscan_opt(nl, A_qk.transpose(-1, -2))  # B T C WD
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
         #  
         elif self.implementation == "nonorm":
@@ -297,17 +339,11 @@ class HLRU_sel(nn.Module):
             #print(y.shape)
             y=y.reshape(B,T,self.hidden_dim*self.window_dim)
         
-        elif self.implementation == "nonorm_hopscan_opt":
-                        #b h t c
-            A_qk = gates # B T C WD+1
-            # A_qk = A_qk/torch.sum(A_qk,-1,keepdim=True)
-            nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
-            A_qk = self.A_temp + F.pad(A_qk[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD' WD
-
-            y=hopscan_opt(nl, A_qk) # B T C WD
-
-            # reshape back 
-            y=y.reshape(B,T,self.hidden_dim*self.window_dim)
+        elif self.implementation == "nonorm_hopscan_custom":
+            A_qk = gates  # B T C WD+1
+            A_qk, nl = _companion_A_and_b(self.A_temp, A_qk, v)
+            y = hopscan_opt(nl, A_qk.transpose(-1, -2))  # B T C WD
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
         #  tanh
         elif self.implementation == "tanh_l1":
@@ -353,17 +389,12 @@ class HLRU_sel(nn.Module):
             #print(y.shape)
             y=y.reshape(B,T,self.hidden_dim*self.window_dim)
 
-        elif self.implementation == "tanh_l1_hopscan_opt":
-                        #b h t c
-            A_qk = torch.tanh(gates) # B T C WD+1
-            A_qk = A_qk/torch.sum(torch.abs(A_qk),-1,keepdim=True)
-            nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
-            A_qk = self.A_temp + F.pad(A_qk[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD' WD
-
-            y=hopscan_opt(nl, A_qk) # B T C WD
-
-            # reshape back 
-            y=y.reshape(B,T,self.hidden_dim*self.window_dim)
+        elif self.implementation == "tanh_l1_hopscan_custom":
+            A_qk = torch.tanh(gates)  # B T C WD+1
+            A_qk = A_qk / torch.sum(torch.abs(A_qk), -1, keepdim=True)
+            A_qk, nl = _companion_A_and_b(self.A_temp, A_qk, v)
+            y = hopscan_opt(nl, A_qk.transpose(-1, -2))  # B T C WD
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
         # linl1
         elif self.implementation == "lin_l1":
@@ -409,17 +440,12 @@ class HLRU_sel(nn.Module):
             #print(y.shape)
             y=y.reshape(B,T,self.hidden_dim*self.window_dim)
 
-        elif self.implementation == "lin_l1_hopscan_opt":
-                        #b h t c
-            A_qk = gates # B T C WD+1
-            A_qk = A_qk/torch.sum(torch.abs(A_qk),-1,keepdim=True)
-            nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
-            A_qk = self.A_temp + F.pad(A_qk[:,:,:,:-1].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD' WD
-
-            y=hopscan_opt(nl, A_qk) # B T C WD
-
-            # reshape back 
-            y=y.reshape(B,T,self.hidden_dim*self.window_dim)
+        elif self.implementation == "lin_l1_hopscan_custom":
+            A_qk = gates  # B T C WD+1
+            A_qk = A_qk / torch.sum(torch.abs(A_qk), -1, keepdim=True)
+            A_qk, nl = _companion_A_and_b(self.A_temp, A_qk, v)
+            y = hopscan_opt(nl, A_qk.transpose(-1, -2))  # B T C WD
+            y = y.reshape(B, T, self.hidden_dim * self.window_dim)
 
         else: 
             raise ValueError(f"Parallel implementation {self.implementation} not supported")
