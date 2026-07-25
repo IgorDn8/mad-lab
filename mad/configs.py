@@ -3,6 +3,7 @@ import yaml
 import typing as tp
 import numpy as np
 from dataclasses import dataclass, fields
+import torch
 from torch import nn
 
 from mad.paths import get_base_path, make_dataset_path
@@ -119,6 +120,11 @@ class MADConfig(BaseConfig):
     @property
     def test_dataset_path(self) -> str:
         return os.path.join(self.dataset_path, 'test')
+
+
+# PyTorch >=2.6 defaults torch.load(weights_only=True); PL checkpoints store MADConfig.
+if hasattr(torch.serialization, 'add_safe_globals'):
+    torch.serialization.add_safe_globals([MADConfig])
 
 
 @dataclass

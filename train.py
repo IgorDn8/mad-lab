@@ -74,6 +74,7 @@ def get_args():
     parser.add_argument('--log-to-wandb', action=argparse.BooleanOptionalAction, default=False, help='if True, metrics are logged to Weights & Biases')
     parser.add_argument('--wandb-project', type=str, default='MAD', help='name of the Weights & Biases project to log to')
     parser.add_argument('--save-checkpoints', action=argparse.BooleanOptionalAction, default=True, help='if True, final and best model checkpoints are saved in the log directory')
+    parser.add_argument('--resume', action=argparse.BooleanOptionalAction, default=True, help='if True, resume from checkpoints/last.ckpt when the log dir exists without results.csv')
     #parser.add_argument('--save-steps', type=int, default=None, help='save checkpoint every n steps')
     parser.add_argument('--profile', action=argparse.BooleanOptionalAction, default=False, help='if True, profiler infor is written into log file')
 
@@ -97,6 +98,14 @@ def get_args():
     return args
 
 
+def find_resume_checkpoint(log_path: str) -> str | None:
+    """Return path to last.ckpt if present."""
+    last_ckpt = os.path.join(log_path, 'checkpoints', 'last.ckpt')
+    if os.path.isfile(last_ckpt):
+        return last_ckpt
+    return None
+
+
 # train model according to mad_config:
 
 def train(
@@ -108,6 +117,7 @@ def train(
     wandb_project: str = 'MAD',
     save_checkpoints: bool = True,
     profile: bool = False,
+    resume: bool = True,
 ) -> pd.DataFrame:
     """
     Train a model with given configuration and log results.
@@ -120,6 +130,7 @@ def train(
         log_to_wandb (bool): if True, log results to Weights & Biases
         wandb_project (str): name of Weights & Biases project to log to
         save_checkpoints (bool): if True, save model checkpoints
+        resume (bool): if True, resume from checkpoints/last.ckpt when available
 
     Returns:
         results_df (pd.DataFrame): results of training
@@ -131,15 +142,24 @@ def train(
     np.random.seed(mad_config.seed)
     torch.manual_seed(mad_config.seed)
 
-    # Check if results exist already.
+    # Check if results exist already, or resume from checkpoint.
 
+    resume_ckpt = None
     if os.path.exists(log_path):
         path_results_df = os.path.join(log_path, 'results.csv')
         if os.path.exists(path_results_df):
             results_df = pd.read_csv(path_results_df)
             print(f'Log path "{log_path}" exists, retrieved results from there...')
             return results_df
+        if resume and save_checkpoints:
+            resume_ckpt = find_resume_checkpoint(log_path)
+            if resume_ckpt is not None:
+                print(f'Log path "{log_path}" exists, resuming from "{resume_ckpt}"...')
+            else:
+                print(f'Log path "{log_path}" exists without results or checkpoint, restarting...')
+                shutil.rmtree(log_path)
         else:
+            print(f'Log path "{log_path}" exists without results, restarting (--no-resume)...')
             shutil.rmtree(log_path)
 
     # PyTorch Lightning Model Wrap.
@@ -268,16 +288,18 @@ def train(
     )
 
     # save initial configuration before training
-    if save_checkpoints and log_path is not None:
+    if save_checkpoints and log_path is not None and resume_ckpt is None:
+        os.makedirs(os.path.join(log_path, 'checkpoints'), exist_ok=True)
         trainer.strategy.connect(model_wrapped)
-        trainer.save_checkpoint(os.path.join(log_path, 'checkpoints','init.ckpt'))
+        trainer.save_checkpoint(os.path.join(log_path, 'checkpoints', 'init.ckpt'))
 
     # Train.
 
-    trainer.fit(model_wrapped, train_dl, test_dl)
+    trainer.fit(model_wrapped, train_dl, test_dl, ckpt_path=resume_ckpt)
     # Evaluate Final Performance.
-    results_train = trainer.validate(dataloaders=train_dl)[0]
-    results_test = trainer.validate(dataloaders=test_dl)[0]
+    # weights_only=False: checkpoints include MADConfig hyperparameters (see mad/configs.py).
+    results_train = trainer.validate(dataloaders=train_dl, weights_only=False)[0]
+    results_test = trainer.validate(dataloaders=test_dl, weights_only=False)[0]
 
     # saving results
     param_num = sum(p.numel() for p in model_wrapped.parameters() if p.requires_grad)
@@ -351,4 +373,5 @@ if __name__ == '__main__':
         wandb_project=args['wandb_project'],
         save_checkpoints=args['save_checkpoints'],
         profile=args["profile"],
+        resume=args['resume'],
     )
