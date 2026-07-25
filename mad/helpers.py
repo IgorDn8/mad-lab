@@ -6,6 +6,45 @@ from abstract_algebra.finite_algebras import (
 from collections import OrderedDict
 import re
 
+_LAYER_DIM_RE = re.compile(r'-d(\d+)-')
+
+
+def infer_dim_from_layer_names(layer_names: list[str]) -> int | None:
+    """Return the unique model width encoded in layer names (e.g. ``d128``), if any."""
+    dims = set()
+    for name in layer_names:
+        match = _LAYER_DIM_RE.search(name)
+        if match:
+            dims.add(int(match.group(1)))
+    if len(dims) > 1:
+        raise ValueError(
+            f'Layers imply conflicting widths {sorted(dims)}: {layer_names}. '
+            'Use layers that share the same `-d<width>-` tag or pass a consistent --dim.'
+        )
+    return next(iter(dims)) if dims else None
+
+
+def _parse_override_value(value: str):
+    if value.lower() in {'true', 'false'}:
+        return value.lower() == 'true'
+    try:
+        if '.' in value:
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value
+
+
+def parse_layer_overrides(items: list[str]) -> dict:
+    """Parse ``KEY=VALUE`` strings (same format as speed_benchmark.py)."""
+    overrides = {}
+    for item in items:
+        if '=' not in item:
+            raise ValueError(f'--layer-overrides expects KEY=VALUE, got {item!r}')
+        key, value = item.split('=', 1)
+        overrides[key] = _parse_override_value(value)
+    return overrides
+
 def generate_group(g: (str, int)) -> FiniteAlgebra:
     """Generate an group from a string identifier."""
     if g[0] == "S":

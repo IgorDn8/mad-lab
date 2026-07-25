@@ -17,8 +17,8 @@ from mad.configs import MADConfig, MADModelConfig
 from mad.paths import make_log_path
 from mad.data import generate_data
 from mad.model import PLModelWrap
-from mad.registry import task_registry, layer_registry
-from mad.helpers import compute_vocab_size
+from mad.registry import task_registry, layer_registry, validate_layer_names
+from mad.helpers import compute_vocab_size, infer_dim_from_layer_names, parse_layer_overrides
 
 # torch._dynamo.config.suppress_errors = True
 
@@ -40,9 +40,13 @@ def get_args():
     parser.add_argument('--multi-query', action=argparse.BooleanOptionalAction, default=True, help='if True, multi-query variant of in-context recall tasks is used')
     
     # model settings:
-    parser.add_argument('--layers', nargs='+', default=['mh-attention', 'swiglu', 'mh-attention', 'swiglu'], help='layers of model')
+    parser.add_argument('--layers', nargs='+', default=['mh-attention', 'swiglu', 'mh-attention', 'swiglu'], help='layers of model (includes iso-tier names such as pdssm-d128-iso1m)')
     parser.add_argument('--backbone', type=str, default='language-model', help='model backbone used for layers')
-    parser.add_argument('--dim', type=int, default=128, help='embedding dimension')
+    parser.add_argument('--dim', type=int, default=128, help='embedding dimension (auto-set from `-d<width>-` in layer names when present)')
+    parser.add_argument(
+        '--layer-overrides', nargs='*', default=[],
+        help='override layer YAML fields, e.g. implementation=associative_scan',
+    )
     
     # training settings:
     parser.add_argument('--batch-size', type=int, default=128, help='batch size for training and evaluation')
@@ -312,11 +316,19 @@ if __name__ == '__main__':
         print("Group initialization...")
         args["vocab_size"]=compute_vocab_size(args["task"],args["vocab_size"])
         print("Done")
+
+    validate_layer_names(args['layers'])
+    inferred_dim = infer_dim_from_layer_names(args['layers'])
+    if inferred_dim is not None and inferred_dim != args['dim']:
+        print(f'Using --dim {inferred_dim} implied by layer name(s) (CLI had {args["dim"]}).')
+        args['dim'] = inferred_dim
     
     # create model config:
 
     model_config = MADModelConfig()
     model_config.update_from_kwargs(args)
+    model_config.max_length = args['seq_len']
+    model_config.layer_overrides = parse_layer_overrides(args['layer_overrides'])
     model = model_config.build_model_from_registry()    
     model_id = '-'.join(layer_registry[l]['shorthand'] for l in model_config.layers)
 

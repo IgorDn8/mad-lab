@@ -133,6 +133,7 @@ class MADModelConfig(BaseConfig):
     norm: nn.Module = nn.LayerNorm
     position_embeds: tp.Callable = None
     embed_drop_rate: float = 0.0
+    layer_overrides: tp.Optional[tp.Dict[str, tp.Any]] = None
 
     def build_model_from_registry(self,save_dynamics=False):
         """build a model from components registered in MAD"""
@@ -141,12 +142,15 @@ class MADModelConfig(BaseConfig):
             _cfg = load_yml(os.path.join(get_base_path(), layer_registry[layer]['cfg']))
             _cfg['dim'] = self.dim
             _cfg['max_length'] = self.max_length
+            for key, value in (self.layer_overrides or {}).items():
+                if key in _cfg:
+                    _cfg[key] = value
             if save_dynamics and 'implementation' in _cfg:
                 print(_cfg)                
-                if _cfg['implementation']=='hopscan_opt':
+                if _cfg['implementation'] in {'hopscan_custom', 'custom_hopscan_autotune'}:
                     _cfg['implementation']='orig_save_dynamics'
-                elif '_hopscan_opt' in _cfg['implementation']:
-                    _cfg['implementation']=_cfg['implementation'][:-12]+'_save_dynamics'
+                elif '_hopscan_custom' in _cfg['implementation']:
+                    _cfg['implementation']=_cfg['implementation'][:-14]+'_save_dynamics'
                 else:
                     _cfg['implementation']=_cfg['implementation']+'_save_dynamics'
                 print(_cfg)
