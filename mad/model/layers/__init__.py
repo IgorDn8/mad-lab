@@ -59,7 +59,9 @@ _LAYER_IMPORTS = [
     ("mad.model.layers.hlru_nonsel", ["HLRU_nonsel"]),
     ("mad.model.layers.deltaproduct", ["dproduct"]),
     ("mad.model.layers.deltanet", ["dnet"]),
-    ("mad.model.layers.mambaV2", ["MambaV2"]),
+    ("mad.model.layers.mamba_v2", ["MambaV2"]),
+    ("mad.model.layers.mamba2_fla", ["Mamba2fla"]),
+    ("mad.model.layers.pdssm", ["PDSSM"]),
 ]
 
 _unavailable = {}
