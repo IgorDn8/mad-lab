@@ -1,0 +1,6 @@
+dim: 128
+head_dim: 16
+num_heads: 8
+expand_v: 1
+gated: true
+negative: true

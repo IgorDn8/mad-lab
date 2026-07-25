@@ -1,0 +1,6 @@
+dim: 128
+hidden_dim: 128
+dictionary_size: 8
+hidden_D_multiple: 2
+dropout_rate: 0.01
+implementation: sequential

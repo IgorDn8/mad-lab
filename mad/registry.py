@@ -211,6 +211,28 @@ layer_registry = {
         'cfg': 'configs/layers/lstm-d128-h192.yml',
         'shorthand': 'oLSTMd128h192'
     }, 
+    'lstm-d128-h224': {
+        'module': layers.LSTM,
+        'cfg': 'configs/layers/lstm-d128-h224.yml',
+        'shorthand': 'oLSTMd128h224'
+    }, 
+    'lstm-d128-h416': {
+        'module': layers.LSTM,
+        'cfg': 'configs/layers/lstm-d128-h416.yml',
+        'shorthand': 'oLSTMd128h416'
+    }, 
+    # --- d=1024 (wide, shallow-state) iso-parameter tier (~1M) ---
+    'lstm-d1024-h176': {
+        'module': layers.LSTM,
+        'cfg': 'configs/layers/lstm-d1024-h176.yml',
+        'shorthand': 'oLSTMd1024h176'
+    }, 
+    # --- d=1024 iso-parameter tier (~10M) ---
+    'lstm-d1024-h1064': {
+        'module': layers.LSTM,
+        'cfg': 'configs/layers/lstm-d1024-h1064.yml',
+        'shorthand': 'oLSTMd1024h1064'
+    }, 
     'lstm-d128-h256': {
         'module': layers.LSTM,
         'cfg': 'configs/layers/lstm-d128-h256.yml',
@@ -230,6 +252,54 @@ layer_registry = {
         'module': layers.LSTM,
         'cfg': 'configs/layers/lstm-d128-h448.yml',
         'shorthand': 'oLSTMd128h448'
+    },  # begin pdssm
+    'pdssm-d128-h64': {
+        'module': layers.PDSSM,
+        'cfg': 'configs/layers/pdssm-d128-h64.yml',
+        'shorthand': 'PDSSMd128h64'
+    },
+    'pdssm-d128-h128': {
+        'module': layers.PDSSM,
+        'cfg': 'configs/layers/pdssm-d128-h128.yml',
+        'shorthand': 'PDSSMd128h128'
+    },
+    'pdssm-d128-h256': {
+        'module': layers.PDSSM,
+        'cfg': 'configs/layers/pdssm-d128-h256.yml',
+        'shorthand': 'PDSSMd128h256'
+    },
+    'pdssm-d1024-h104': {
+        'module': layers.PDSSM,
+        'cfg': 'configs/layers/pdssm-d1024-h104.yml',
+        'shorthand': 'PDSSMd1024h104'
+    },
+    'pdssm-d1024-h632': {
+        'module': layers.PDSSM,
+        'cfg': 'configs/layers/pdssm-d1024-h632.yml',
+        'shorthand': 'PDSSMd1024h632'
+    },  # Mamba2 (flash-linear-attention / Triton backend)
+    'mamba2-fla-d128': {
+        'module': layers.Mamba2fla,
+        'cfg': 'configs/layers/mamba2-fla-d128.yml',
+        'shorthand': 'mamba2'
+    },
+    # larger Mamba2 (expand=6) tuned to the ~0.33M iso-parameter budget
+    'mamba2-fla-d128-iso': {
+        'module': layers.Mamba2fla,
+        'cfg': 'configs/layers/mamba2-fla-d128-iso.yml',
+        'shorthand': 'mamba2iso'
+    },
+    # Mamba2 (expand=20) tuned to the ~1.0M iso-parameter budget
+    'mamba2-fla-d128-iso1m': {
+        'module': layers.Mamba2fla,
+        'cfg': 'configs/layers/mamba2-fla-d128-iso1m.yml',
+        'shorthand': 'mamba2iso1m'
+    },
+    # Mamba2 (d=1024, expand=3) tuned to the ~10M iso-parameter budget
+    'mamba2-fla-d1024-iso10m': {
+        'module': layers.Mamba2fla,
+        'cfg': 'configs/layers/mamba2-fla-d1024-iso10m.yml',
+        'shorthand': 'mamba2d1024iso10m'
     },  # begin bdlru                                       
     'bdlru-sel-wd1-d128-h16': {
         'module': layers.BDLRU_sel,
@@ -365,6 +435,31 @@ layer_registry = {
         'module': layers.BDLRU_sel,
         'cfg': 'configs/layers/bdlru-sel-wd2-d128-h256.yml',
         'shorthand': 'BDLRUselwd2d128h256'
+    },     
+    'bdlru-sel-wd2-d128-h768': {
+        'module': layers.BDLRU_sel,
+        'cfg': 'configs/layers/bdlru-sel-wd2-d128-h768.yml',
+        'shorthand': 'BDLRUselwd2d128h768'
+    },     
+    'bdlru-sel-wd1-d1024-h240': {
+        'module': layers.BDLRU_sel,
+        'cfg': 'configs/layers/bdlru-sel-wd1-d1024-h240.yml',
+        'shorthand': 'BDLRUselwd1d1024h240'
+    },     
+    'bdlru-sel-wd2-d1024-h96': {
+        'module': layers.BDLRU_sel,
+        'cfg': 'configs/layers/bdlru-sel-wd2-d1024-h96.yml',
+        'shorthand': 'BDLRUselwd2d1024h96'
+    },     
+    'bdlru-sel-wd1-d1024-h2432': {
+        'module': layers.BDLRU_sel,
+        'cfg': 'configs/layers/bdlru-sel-wd1-d1024-h2432.yml',
+        'shorthand': 'BDLRUselwd1d1024h2432'
+    },     
+    'bdlru-sel-wd2-d1024-h976': {
+        'module': layers.BDLRU_sel,
+        'cfg': 'configs/layers/bdlru-sel-wd2-d1024-h976.yml',
+        'shorthand': 'BDLRUselwd2d1024h976'
     },     
     'bdlru-sel-wd2-d128-h320': {
         'module': layers.BDLRU_sel,
@@ -1235,6 +1330,38 @@ layer_registry = {
         'cfg': 'configs/layers/dproduct-orig.yml',
         'shorthand': 'dproducto'
     },                
+    # Clean Householder baselines: only `rank` (= num_householder) varies (2/4/8),
+    # head_dim=64, num_heads=8 held fixed. Used as speed baselines vs BD-LRU blocks.
+    'dproduct-hh2': {
+        'module': layers.dproduct,
+        'cfg': 'configs/layers/dproduct-hh2-hd64-nh8.yml',
+        'shorthand': 'dproducthh2'
+    },
+    'dproduct-hh4': {
+        'module': layers.dproduct,
+        'cfg': 'configs/layers/dproduct-hh4-hd64-nh8.yml',
+        'shorthand': 'dproducthh4'
+    },
+    'dproduct-hh6': {
+        'module': layers.dproduct,
+        'cfg': 'configs/layers/dproduct-hh6-hd64-nh8.yml',
+        'shorthand': 'dproducthh6'
+    },
+    'dproduct-d1024-hh2': {
+        'module': layers.dproduct,
+        'cfg': 'configs/layers/dproduct-d1024-hh2-hd16-nh8.yml',
+        'shorthand': 'dproductd1024hh2'
+    },
+    'dproduct-d1024-hh2-10m': {
+        'module': layers.dproduct,
+        'cfg': 'configs/layers/dproduct-d1024-hh2-hd168-nh8.yml',
+        'shorthand': 'dproductd1024hh210m'
+    },
+    'dproduct-hh8': {
+        'module': layers.dproduct,
+        'cfg': 'configs/layers/dproduct-hh8-hd64-nh8.yml',
+        'shorthand': 'dproducthh8'
+    },
     'dproduct-gn-hd16-nh8': {
         'module': layers.dproduct,
         'cfg': 'configs/layers/dproduct-gn-hd16-nh8.yml',
@@ -1410,6 +1537,21 @@ layer_registry = {
         'cfg': 'configs/layers/dnet-orig.yml',
         'shorthand': 'dneto'
     },                    
+    'dnet-gn-hd192-nh8': {
+        'module': layers.dnet,
+        'cfg': 'configs/layers/dnet-gn-hd192-nh8.yml',
+        'shorthand': 'dnetgnhd192nh8'
+    },
+    'dnet-d1024-hd24-nh8': {
+        'module': layers.dnet,
+        'cfg': 'configs/layers/dnet-d1024-hd24-nh8.yml',
+        'shorthand': 'dnetd1024hd24nh8'
+    },
+    'dnet-d1024-hd240-nh8': {
+        'module': layers.dnet,
+        'cfg': 'configs/layers/dnet-d1024-hd240-nh8.yml',
+        'shorthand': 'dnetd1024hd240nh8'
+    },
     'dnet-gn-hd160-nh8': {
         'module': layers.dnet,
         'cfg': 'configs/layers/dnet-gn-hd160-nh8.yml',
@@ -1532,6 +1674,21 @@ layer_registry = {
         'module': layers.HLRU_sel,
         'cfg': 'configs/layers/hlru-sel-wd4-d128-h256.yml',
         'shorthand': 'HLRUselwd4d128h256'
+    },
+    'hlru-sel-wd4-d128-h768': {
+        'module': layers.HLRU_sel,
+        'cfg': 'configs/layers/hlru-sel-wd4-d128-h768.yml',
+        'shorthand': 'HLRUselwd4d128h768'
+    },
+    'hlru-sel-wd4-d1024-h96': {
+        'module': layers.HLRU_sel,
+        'cfg': 'configs/layers/hlru-sel-wd4-d1024-h96.yml',
+        'shorthand': 'HLRUselwd4d1024h96'
+    },
+    'hlru-sel-wd4-d1024-h976': {
+        'module': layers.HLRU_sel,
+        'cfg': 'configs/layers/hlru-sel-wd4-d1024-h976.yml',
+        'shorthand': 'HLRUselwd4d1024h976'
     },     
     'hlru-sel-wd3-d128-h384': {
         'module': layers.HLRU_sel,
@@ -1550,6 +1707,133 @@ layer_registry = {
         'shorthand': 'dproductgn4d768hd256nh5e4'
     }, # fr hlru add
 }
+
+
+# ---------------------------------------------------------------------------
+# Iso-hidden-state benchmark tiers.
+#
+# These match the *recurrent state size* (total number of scalars carried
+# across time), NOT the parameter count. State size per family:
+#   LSTM            : hidden_dim (cell state)
+#   BD-LRU / H-LRU  : hidden_dim * window_dim   (block-diagonal state = N * m)
+#   PDSSM           : hidden_dim                (complex diagonal modes)
+#   Mamba2          : d_inner * state_size = (expand * dim) * state_size
+#   DeltaNet/Product: num_heads * head_dim * d_v = num_heads * head_dim**2  (expand_v=1)
+#                     (#householders / rank do NOT change the state size)
+#
+# Tiers: d=128 at state in {512,1024,2048,4096}; d=1024 at state 4096 only.
+# BD-LRU / H-LRU are emitted at block sizes m in {1, 2, 4, 8, 16} (N = state / m)
+# so block size can be compared at matched state. A single generator
+# (scripts/gen_iso_state_configs.py) writes the YAML files from this same spec.
+# ---------------------------------------------------------------------------
+_ISO_STATE_DIM_STATES = {128: [512, 1024, 2048, 4096], 1024: [4096]}
+_ISO_STATE_BLOCKS = (1, 2, 4, 8, 16)
+
+
+def iso_state_layer_specs():
+    """Yield (name, module, cfg_path, shorthand, cfg_dict) for every iso-state config."""
+    specs = []
+
+    def add(name, module, cfg):
+        cfg_path = f'configs/layers/{name}.yml'
+        specs.append((name, module, cfg_path, name.replace('-', ''), cfg))
+
+    for dim, states in _ISO_STATE_DIM_STATES.items():
+        for s in states:
+            add(f'lstm-d{dim}-s{s}', layers.LSTM,
+                {'dim': dim, 'hidden_dim': s})
+            for m in _ISO_STATE_BLOCKS:
+                add(f'bdlru-sel-wd{m}-d{dim}-s{s}', layers.BDLRU_sel,
+                    {'dim': dim, 'hidden_dim': s // m, 'window_dim': m, 'implementation': 'orig'})
+                add(f'hlru-sel-wd{m}-d{dim}-s{s}', layers.HLRU_sel,
+                    {'dim': dim, 'hidden_dim': s // m, 'window_dim': m, 'implementation': 'orig'})
+            add(f'pdssm-d{dim}-s{s}', layers.PDSSM,
+                {'dim': dim, 'hidden_dim': s, 'dictionary_size': 8,
+                 'hidden_D_multiple': 2, 'dropout_rate': 0.01, 'implementation': 'sequential'})
+            # Mamba2: state = (expand*dim) * state_size, fix expand=2, head_dim=64
+            add(f'mamba2-fla-d{dim}-s{s}', layers.Mamba2fla,
+                {'dim': dim, 'head_dim': 64, 'state_size': s // (2 * dim), 'expand': 2,
+                 'n_groups': 1, 'conv_kernel': 4, 'chunk_size': 256, 'backend': 'triton'})
+            # Delta*: state = num_heads * head_dim**2, fix head_dim=16 -> num_heads = s/256
+            add(f'dnet-d{dim}-s{s}', layers.dnet,
+                {'dim': dim, 'head_dim': 16, 'num_heads': s // 256,
+                 'expand_v': 1, 'gated': True, 'negative': True})
+            # DeltaProduct at 2/4/8 householders (rank). Rank does NOT change the
+            # state size, so all three sit at the same state -- the intended
+            # #householders-vs-block-size comparison against BD-LRU / H-LRU.
+            for r in (2, 4, 8):
+                add(f'dproduct-hh{r}-d{dim}-s{s}', layers.dproduct,
+                    {'dim': dim, 'head_dim': 16, 'num_heads': s // 256, 'expand_v': 1,
+                     'gated': True, 'negative': True, 'rank': r})
+    return specs
+
+
+for _name, _module, _cfg, _short, _ in iso_state_layer_specs():
+    layer_registry.setdefault(_name, {'module': _module, 'cfg': _cfg, 'shorthand': _short})
+
+
+# Iso-PARAMETER family sweeps (all families; BD-LRU/H-LRU at blocks {1,2,4,8,16},
+# DeltaProduct at householders {2,4,8}). The size knob of each family is solved to
+# hit the tier's parameter budget, so the values live in a generated index rather
+# than a closed-form. Regenerate with: uv run python -m scripts.gen_iso_param_sweeps
+_ISO_PARAM_MODULES = {
+    'lstm': layers.LSTM, 'bdlru': layers.BDLRU_sel, 'hlru': layers.HLRU_sel,
+    'pdssm': layers.PDSSM, 'mamba2': layers.Mamba2fla, 'dnet': layers.dnet,
+    'dproduct': layers.dproduct,
+}
+def _register_iso_param_layers() -> None:
+    import json as _json
+    import os as _os
+    import warnings as _warnings
+
+    # Inline get_base_path() to avoid importing mad.paths here (paths imports this module).
+    _base = _os.getenv('TUNE_ORIG_WORKING_DIR', '')
+    _iso_param_index = _os.path.join(_base, 'configs/iso_param_sweeps.json')
+    if not _os.path.exists(_iso_param_index):
+        return
+    try:
+        with open(_iso_param_index) as _f:
+            for _entry in _json.load(_f):
+                layer_registry.setdefault(_entry['name'], {
+                    'module': _ISO_PARAM_MODULES.get(_entry['family']),
+                    'cfg': _entry['cfg_path'],
+                    'shorthand': _entry['name'].replace('-', ''),
+                })
+    except Exception as exc:  # noqa: BLE001 - registry must import even if the index is corrupt
+        _warnings.warn(
+            f'Could not load iso-parameter layer index ({_iso_param_index}): {exc}. '
+            'Run `uv run python -m scripts.gen_iso_param_sweeps` to regenerate it.',
+            stacklevel=2,
+        )
+
+
+_register_iso_param_layers()
+
+
+def validate_layer_names(names: list[str]) -> None:
+    """Raise a clear error if any layer name is unknown or unavailable."""
+    import re as _re
+
+    unknown = [name for name in names if name not in layer_registry]
+    if unknown:
+        hint = ''
+        if any(_re.search(r'iso\d+m|iso033m', name) for name in unknown):
+            hint = (
+                ' Iso-tier layers are generated configs; ensure '
+                'configs/iso_param_sweeps.json exists (run: '
+                'uv run python -m scripts.gen_iso_param_sweeps).'
+            )
+        raise ValueError(f'Unknown layer name(s): {unknown}.{hint}')
+
+    unavailable = [
+        name for name in names
+        if layer_registry[name].get('module') is None
+    ]
+    if unavailable:
+        raise ValueError(
+            f'Layer(s) unavailable in this environment (install required extras): '
+            f'{unavailable}'
+        )
 
 
 model_registry = {

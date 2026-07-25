@@ -1,0 +1,4 @@
+dim: 1024
+hidden_dim: 16268
+window_dim: 2
+implementation: orig

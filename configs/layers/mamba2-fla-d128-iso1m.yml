@@ -1,0 +1,8 @@
+dim: 128
+head_dim: 64
+state_size: 128
+expand: 19
+n_groups: 1
+conv_kernel: 4
+chunk_size: 256
+backend: triton

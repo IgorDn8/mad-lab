@@ -1,0 +1,422 @@
+[
+  {
+    "name": "lstm-d128-iso033m",
+    "family": "lstm",
+    "cfg_path": "configs/layers/lstm-d128-iso033m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd1-d128-iso033m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd1-d128-iso033m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd2-d128-iso033m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd2-d128-iso033m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd4-d128-iso033m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd4-d128-iso033m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd8-d128-iso033m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd8-d128-iso033m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd16-d128-iso033m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd16-d128-iso033m.yml"
+  },
+  {
+    "name": "hlru-sel-wd1-d128-iso033m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd1-d128-iso033m.yml"
+  },
+  {
+    "name": "hlru-sel-wd2-d128-iso033m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd2-d128-iso033m.yml"
+  },
+  {
+    "name": "hlru-sel-wd4-d128-iso033m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd4-d128-iso033m.yml"
+  },
+  {
+    "name": "hlru-sel-wd8-d128-iso033m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd8-d128-iso033m.yml"
+  },
+  {
+    "name": "hlru-sel-wd16-d128-iso033m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd16-d128-iso033m.yml"
+  },
+  {
+    "name": "pdssm-d128-iso033m",
+    "family": "pdssm",
+    "cfg_path": "configs/layers/pdssm-d128-iso033m.yml"
+  },
+  {
+    "name": "mamba2-fla-d128-iso033m",
+    "family": "mamba2",
+    "cfg_path": "configs/layers/mamba2-fla-d128-iso033m.yml"
+  },
+  {
+    "name": "dnet-d128-iso033m",
+    "family": "dnet",
+    "cfg_path": "configs/layers/dnet-d128-iso033m.yml"
+  },
+  {
+    "name": "dproduct-hh2-d128-iso033m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh2-d128-iso033m.yml"
+  },
+  {
+    "name": "dproduct-hh4-d128-iso033m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh4-d128-iso033m.yml"
+  },
+  {
+    "name": "dproduct-hh8-d128-iso033m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh8-d128-iso033m.yml"
+  },
+  {
+    "name": "lstm-d128-iso1m",
+    "family": "lstm",
+    "cfg_path": "configs/layers/lstm-d128-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd1-d128-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd1-d128-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd2-d128-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd2-d128-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd4-d128-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd4-d128-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd8-d128-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd8-d128-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd16-d128-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd16-d128-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd1-d128-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd1-d128-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd2-d128-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd2-d128-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd4-d128-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd4-d128-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd8-d128-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd8-d128-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd16-d128-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd16-d128-iso1m.yml"
+  },
+  {
+    "name": "pdssm-d128-iso1m",
+    "family": "pdssm",
+    "cfg_path": "configs/layers/pdssm-d128-iso1m.yml"
+  },
+  {
+    "name": "mamba2-fla-d128-iso1m",
+    "family": "mamba2",
+    "cfg_path": "configs/layers/mamba2-fla-d128-iso1m.yml"
+  },
+  {
+    "name": "dnet-d128-iso1m",
+    "family": "dnet",
+    "cfg_path": "configs/layers/dnet-d128-iso1m.yml"
+  },
+  {
+    "name": "dproduct-hh2-d128-iso1m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh2-d128-iso1m.yml"
+  },
+  {
+    "name": "dproduct-hh4-d128-iso1m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh4-d128-iso1m.yml"
+  },
+  {
+    "name": "dproduct-hh8-d128-iso1m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh8-d128-iso1m.yml"
+  },
+  {
+    "name": "lstm-d1024-iso1m",
+    "family": "lstm",
+    "cfg_path": "configs/layers/lstm-d1024-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd1-d1024-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd1-d1024-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd2-d1024-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd2-d1024-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd4-d1024-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd4-d1024-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd8-d1024-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd8-d1024-iso1m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd16-d1024-iso1m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd16-d1024-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd1-d1024-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd1-d1024-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd2-d1024-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd2-d1024-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd4-d1024-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd4-d1024-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd8-d1024-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd8-d1024-iso1m.yml"
+  },
+  {
+    "name": "hlru-sel-wd16-d1024-iso1m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd16-d1024-iso1m.yml"
+  },
+  {
+    "name": "pdssm-d1024-iso1m",
+    "family": "pdssm",
+    "cfg_path": "configs/layers/pdssm-d1024-iso1m.yml"
+  },
+  {
+    "name": "dnet-d1024-iso1m",
+    "family": "dnet",
+    "cfg_path": "configs/layers/dnet-d1024-iso1m.yml"
+  },
+  {
+    "name": "dproduct-hh2-d1024-iso1m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh2-d1024-iso1m.yml"
+  },
+  {
+    "name": "dproduct-hh4-d1024-iso1m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh4-d1024-iso1m.yml"
+  },
+  {
+    "name": "dproduct-hh8-d1024-iso1m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh8-d1024-iso1m.yml"
+  },
+  {
+    "name": "lstm-d1024-iso10m",
+    "family": "lstm",
+    "cfg_path": "configs/layers/lstm-d1024-iso10m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd1-d1024-iso10m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd1-d1024-iso10m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd2-d1024-iso10m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd2-d1024-iso10m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd4-d1024-iso10m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd4-d1024-iso10m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd8-d1024-iso10m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd8-d1024-iso10m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd16-d1024-iso10m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd16-d1024-iso10m.yml"
+  },
+  {
+    "name": "hlru-sel-wd1-d1024-iso10m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd1-d1024-iso10m.yml"
+  },
+  {
+    "name": "hlru-sel-wd2-d1024-iso10m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd2-d1024-iso10m.yml"
+  },
+  {
+    "name": "hlru-sel-wd4-d1024-iso10m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd4-d1024-iso10m.yml"
+  },
+  {
+    "name": "hlru-sel-wd8-d1024-iso10m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd8-d1024-iso10m.yml"
+  },
+  {
+    "name": "hlru-sel-wd16-d1024-iso10m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd16-d1024-iso10m.yml"
+  },
+  {
+    "name": "pdssm-d1024-iso10m",
+    "family": "pdssm",
+    "cfg_path": "configs/layers/pdssm-d1024-iso10m.yml"
+  },
+  {
+    "name": "mamba2-fla-d1024-iso10m",
+    "family": "mamba2",
+    "cfg_path": "configs/layers/mamba2-fla-d1024-iso10m.yml"
+  },
+  {
+    "name": "dnet-d1024-iso10m",
+    "family": "dnet",
+    "cfg_path": "configs/layers/dnet-d1024-iso10m.yml"
+  },
+  {
+    "name": "dproduct-hh2-d1024-iso10m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh2-d1024-iso10m.yml"
+  },
+  {
+    "name": "dproduct-hh4-d1024-iso10m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh4-d1024-iso10m.yml"
+  },
+  {
+    "name": "dproduct-hh8-d1024-iso10m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh8-d1024-iso10m.yml"
+  },
+  {
+    "name": "lstm-d1024-iso100m",
+    "family": "lstm",
+    "cfg_path": "configs/layers/lstm-d1024-iso100m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd1-d1024-iso100m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd1-d1024-iso100m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd2-d1024-iso100m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd2-d1024-iso100m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd4-d1024-iso100m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd4-d1024-iso100m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd8-d1024-iso100m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd8-d1024-iso100m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd16-d1024-iso100m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd16-d1024-iso100m.yml"
+  },
+  {
+    "name": "hlru-sel-wd1-d1024-iso100m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd1-d1024-iso100m.yml"
+  },
+  {
+    "name": "hlru-sel-wd2-d1024-iso100m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd2-d1024-iso100m.yml"
+  },
+  {
+    "name": "hlru-sel-wd4-d1024-iso100m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd4-d1024-iso100m.yml"
+  },
+  {
+    "name": "hlru-sel-wd8-d1024-iso100m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd8-d1024-iso100m.yml"
+  },
+  {
+    "name": "hlru-sel-wd16-d1024-iso100m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd16-d1024-iso100m.yml"
+  },
+  {
+    "name": "pdssm-d1024-iso100m",
+    "family": "pdssm",
+    "cfg_path": "configs/layers/pdssm-d1024-iso100m.yml"
+  },
+  {
+    "name": "mamba2-fla-d1024-iso100m",
+    "family": "mamba2",
+    "cfg_path": "configs/layers/mamba2-fla-d1024-iso100m.yml"
+  },
+  {
+    "name": "dnet-d1024-iso100m",
+    "family": "dnet",
+    "cfg_path": "configs/layers/dnet-d1024-iso100m.yml"
+  },
+  {
+    "name": "dproduct-hh2-d1024-iso100m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh2-d1024-iso100m.yml"
+  },
+  {
+    "name": "dproduct-hh4-d1024-iso100m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh4-d1024-iso100m.yml"
+  },
+  {
+    "name": "dproduct-hh8-d1024-iso100m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh8-d1024-iso100m.yml"
+  }
+]
