@@ -5,3 +5,9 @@ logs/
 speed_data/
 speed_results*.csv
 speed_scaling*.png
+# benchmark outputs (organized per benchmark)
+#   results/<benchmark>/results.csv  and  figures/<benchmark>/<metric>.png
+results/
+figures/
+run_logs/
+*.log
