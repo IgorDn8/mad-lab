@@ -14,6 +14,7 @@ time steps on synthetic batches.
 
 import os
 import time
+import statistics
 import contextlib
 import typing as tp
 
@@ -85,15 +86,25 @@ def time_model(
     precision: str = 'bf16',
     warmup: int = 5,
     iters: int = 20,
+    repeats: int = 5,
     train: bool = True,
+    step_ceiling_ms: tp.Optional[float] = None,
 ) -> tp.Dict[str, tp.Any]:
-    """Time a model on synthetic batches.
+    """Time a model on synthetic batches with per-repeat variance.
 
-    Runs `warmup` untimed steps, then `iters` timed steps of
-    forward (+ backward + optimizer step if `train`). Uses CUDA events on GPU
-    and falls back to wall-clock timing on CPU.
+    Runs `warmup` untimed steps, then `repeats` independent measurement groups of
+    `iters` timed steps each (forward, plus backward + optimizer step if `train`).
+    Each group yields one per-step latency; we report the median across groups
+    plus IQR / min / std so callers can show variance. Uses CUDA events on GPU and
+    falls back to wall-clock timing on CPU.
 
-    Returns a dict of measurements (per-step latency, throughput, peak memory).
+    If `step_ceiling_ms` is set and a (warmup or median) step exceeds it, the cell
+    is aborted early and reported as ``capped_step:>Nms`` with the ceiling as an
+    off-chart sentinel latency -- so a non-competitive sequential loop (e.g. the
+    `orig` scan at long T) doesn't burn wall-clock timing 30+ multi-second steps.
+
+    Returns a dict of measurements (median/spread latency, throughput at the
+    median, peak memory, params).
     """
     use_cuda = device.startswith('cuda') and torch.cuda.is_available()
     autocast_dtype, use_autocast = _dtype_from_precision(precision)
@@ -132,39 +143,93 @@ def time_model(
             loss.backward()
             optimizer.step()
 
-    grad_ctx = contextlib.nullcontext() if train else torch.no_grad()
-    with grad_ctx:
-        for i in range(warmup):
-            one_step(i)
-
+    def timed_group(base_i: int) -> float:
+        """Return per-step latency (ms) for one group of `iters` steps."""
         if use_cuda:
             torch.cuda.synchronize()
-            torch.cuda.reset_peak_memory_stats()
             start_evt = torch.cuda.Event(enable_timing=True)
             end_evt = torch.cuda.Event(enable_timing=True)
             start_evt.record()
-            for i in range(iters):
-                one_step(warmup + i)
+            for j in range(iters):
+                one_step(base_i + j)
             end_evt.record()
             torch.cuda.synchronize()
-            elapsed_ms = start_evt.elapsed_time(end_evt)
-            peak_mem_mb = torch.cuda.max_memory_allocated() / 1e6
-        else:
-            t0 = time.perf_counter()
-            for i in range(iters):
-                one_step(warmup + i)
-            elapsed_ms = (time.perf_counter() - t0) * 1e3
-            peak_mem_mb = float('nan')
+            return start_evt.elapsed_time(end_evt) / iters
+        t0 = time.perf_counter()
+        for j in range(iters):
+            one_step(base_i + j)
+        return (time.perf_counter() - t0) * 1e3 / iters
 
-    step_ms = elapsed_ms / iters
     seq_len = inputs_t.shape[1]
     tokens_per_step = batch_size * seq_len
+
+    def _capped(value_ms: float, status: str) -> tp.Dict[str, tp.Any]:
+        peak = torch.cuda.max_memory_allocated() / 1e6 if use_cuda else float('nan')
+        return {
+            'status': status,
+            'mode': 'train' if train else 'inference',
+            'step_ms': value_ms,
+            'step_ms_min': value_ms,
+            'step_ms_iqr': 0.0,
+            'step_ms_std': 0.0,
+            'repeats': 0,
+            'tokens_per_s': tokens_per_step / (value_ms / 1e3),
+            'samples_per_s': batch_size / (value_ms / 1e3),
+            'peak_mem_mb': peak,
+            'params': sum(p.numel() for p in model.parameters() if p.requires_grad),
+            'batch_size': batch_size,
+        }
+
+    step_times: tp.List[float] = []
+    grad_ctx = contextlib.nullcontext() if train else torch.no_grad()
+    with grad_ctx:
+        for i in range(warmup):
+            if use_cuda:
+                torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            one_step(i)
+            if use_cuda:
+                torch.cuda.synchronize()
+            warm_ms = (time.perf_counter() - t0) * 1e3
+            # Skip the FIRST warmup step: for torch.compile models it triggers a lazy
+            # (max-autotune) compilation whose wall-time is NOT step latency -- counting
+            # it would cap every compiled cell instantly. A runaway compile is instead
+            # bounded by the caller's wall-clock subprocess timeout (-> capped_compile).
+            if step_ceiling_ms is not None and i >= 1 and warm_ms > step_ceiling_ms:
+                return _capped(float(step_ceiling_ms), f'capped_step:>{int(step_ceiling_ms)}ms')
+        if use_cuda:
+            torch.cuda.reset_peak_memory_stats()
+        for r in range(repeats):
+            step_times.append(timed_group(warmup + r * iters))
+        peak_mem_mb = torch.cuda.max_memory_allocated() / 1e6 if use_cuda else float('nan')
+
+    step_ms = statistics.median(step_times)
+    if step_ceiling_ms is not None and step_ms > step_ceiling_ms:
+        return _capped(float(step_ceiling_ms), f'capped_step:>{int(step_ceiling_ms)}ms')
+    lo, hi = _quartiles(step_times)
     return {
         'status': 'ok',
-        'step_ms': step_ms,
+        'mode': 'train' if train else 'inference',
+        'step_ms': step_ms,               # median per-step latency (ms)
+        'step_ms_min': min(step_times),
+        'step_ms_iqr': hi - lo,
+        'step_ms_std': statistics.pstdev(step_times) if len(step_times) > 1 else 0.0,
+        'repeats': len(step_times),
         'tokens_per_s': tokens_per_step / (step_ms / 1e3),
         'samples_per_s': batch_size / (step_ms / 1e3),
         'peak_mem_mb': peak_mem_mb,
         'params': sum(p.numel() for p in model.parameters() if p.requires_grad),
         'batch_size': batch_size,
     }
+
+
+def _quartiles(values: tp.List[float]) -> tp.Tuple[float, float]:
+    """Return (Q1, Q3); falls back to (min, max) when there are too few points."""
+    if len(values) < 2:
+        v = values[0] if values else float('nan')
+        return v, v
+    try:
+        q = statistics.quantiles(values, n=4, method='inclusive')
+        return q[0], q[2]
+    except Exception:  # noqa: BLE001 - be robust to degenerate inputs
+        return min(values), max(values)
