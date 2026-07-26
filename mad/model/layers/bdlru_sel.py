@@ -27,6 +27,16 @@ try:
 except ImportError:
     triton_affine_scan = None
 
+try:
+    from mad.model.layers.ops.scans.triton_fused_gate_scan import (
+        fused_gate_scan, fused_gate_supported,
+    )
+except ImportError:
+    fused_gate_scan = None
+
+    def fused_gate_supported(block):  # noqa: D103
+        return False
+
 # implementation string -> triton scan kernel mode
 _TRITON_SCAN_MODES = {
     "triton_sequential": "sequential",
@@ -35,6 +45,17 @@ _TRITON_SCAN_MODES = {
     "triton_chunked": "chunked",
     # picks chunked/persistent/sequential from (batch*hidden_dim, T, window_dim)
     "triton_auto": "auto",
+    # same forward as triton_auto, but the backward runs the fused reverse
+    # kernels instead of materialising flipped/transposed copies of A
+    "triton_auto_v2": "auto_v2",
+}
+
+# As above, but the softmax/gating/layout chain around the scan is handed to
+# inductor instead of running as eager elementwise kernels. Separate from
+# _TRITON_SCAN_MODES so the un-compiled variants stay selectable for A/B.
+_TRITON_COMPILED_MODES = {
+    "triton_auto_compile": "auto",
+    "triton_auto_v2_compile": "auto_v2",
 }
 
 
@@ -56,6 +77,37 @@ _hopscan_custom_recurrence_autotune = (
     torch.compile(_hopscan_custom_recurrence, mode="max-autotune", dynamic=False)
     if hopscan_opt is not None else None
 )
+
+
+def _triton_gate_inputs(gates: torch.Tensor, v: torch.Tensor, window_dim: int):
+    """Softmax gating -> the (batch*hidden, T, m, m) layout the triton scans take.
+
+    Profiling the plain triton path showed the scan kernel is only ~4% of the
+    step while ~70% goes to eager elementwise launches: the softmax, the gated
+    input, and above all the ``permute(...).reshape(...)`` on the two largest
+    tensors, each of which materialises a fresh copy (plus its mirror in the
+    backward). Isolating that chain here lets inductor fuse it.
+    """
+    B, T, N = gates.shape[0], gates.shape[1], gates.shape[2]
+    A_t = torch.softmax(gates, -1)                      # B T N m m+1
+    a0v = A_t[..., -1] * v                              # B T N m
+    A_t = A_t[..., :-1]                                 # B T N m m
+    BB = B * N
+    A_bb = A_t.permute(0, 2, 1, 3, 4).reshape(BB, T, window_dim, window_dim)
+    b_bb = a0v.permute(0, 2, 1, 3).reshape(BB, T, window_dim)
+    return A_bb, b_bb
+
+
+def _triton_scan_output(y: torch.Tensor, B: int, T: int, N: int, window_dim: int):
+    """(BB, T, m) scan output -> (B, T, N*m) for the out projection."""
+    y = y.reshape(B, N, T, window_dim).permute(0, 2, 1, 3)
+    return y.reshape(B, T, N * window_dim)
+
+
+_triton_gate_inputs_autotune = torch.compile(
+    _triton_gate_inputs, mode="max-autotune", dynamic=False)
+_triton_scan_output_autotune = torch.compile(
+    _triton_scan_output, mode="max-autotune", dynamic=False)
 
 # @torch.compile(mode="max-autotune", dynamic=False)
 class BDLRU_sel(nn.Module):
@@ -253,6 +305,39 @@ class BDLRU_sel(nn.Module):
             # reshape back
             y = y.reshape(B, self.hidden_dim, T, self.window_dim).permute(0,2,1,3)
             y = y.reshape(B, T, self.hidden_dim*self.window_dim) # B T N*m
+
+            # out projection from hidden state (later it goes to mlp)
+            y = self.proj_out(y) # B T N
+
+        elif self.implementation in _TRITON_COMPILED_MODES:
+
+            # identical math to the branch above; the gating and layout chains
+            # are compiled, and the scan stays an opaque op between them.
+            A_bb, b_bb = _triton_gate_inputs_autotune(gates, v, self.window_dim)
+
+            y = triton_affine_scan(A_bb, b_bb,
+                                   _TRITON_COMPILED_MODES[self.implementation]) # BB T m
+
+            y = _triton_scan_output_autotune(
+                y, B, T, self.hidden_dim, self.window_dim) # B T N*m
+
+            # out projection from hidden state (later it goes to mlp)
+            y = self.proj_out(y) # B T N
+
+        elif self.implementation == "triton_fused_gates":
+
+            # gating computed inside the scan kernel, so neither the softmax
+            # output nor A is ever materialised, and the (B,T,N,m) result makes
+            # the reshape below a free view. Widths without a kernel fall back to
+            # the compiled A-based path above.
+            if fused_gate_scan is not None and fused_gate_supported(self.window_dim):
+                y = fused_gate_scan(gates, v) # B T N m
+                y = y.reshape(B, T, self.hidden_dim*self.window_dim) # B T N*m
+            else:
+                A_bb, b_bb = _triton_gate_inputs_autotune(gates, v, self.window_dim)
+                y = triton_affine_scan(A_bb, b_bb, "auto_v2") # BB T m
+                y = _triton_scan_output_autotune(
+                    y, B, T, self.hidden_dim, self.window_dim) # B T N*m
 
             # out projection from hidden state (later it goes to mlp)
             y = self.proj_out(y) # B T N

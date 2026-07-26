@@ -49,6 +49,7 @@ import triton.language as tl
 
 from .affine_scan import scan_parallel as _torch_affine_scan_parallel
 from .triton_auto_scan import chunked_affine_scan, select_scan_mode
+from .triton_fused_bwd import fused_backward_supported, fused_scan_backward
 
 # Triton 3.x tl.dot requires the K dimension to be >= 16 on recent GPUs.
 TRITON_MIN_DOT_K = 16
@@ -477,6 +478,66 @@ def _reference_scan(A: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return y.squeeze(2)
 
 
+# Modes named "<forward mode>_v2" keep the same forward kernel but run the
+# fused reverse kernels for the backward, which skip the flipped/transposed
+# materialisations below. Kept as separate modes so the baseline stays
+# selectable for A/B comparison until the fused path is shown to win.
+_FUSED_BWD_MODES = {f"{_m}_v2": _m for _m in
+                    ("auto", "chunked", "sequential", "persistent")}
+
+
+def _materialising_backward(A, y, grad_y, mode):
+    """Baseline backward: the reverse adjoint as a forward scan on flipped time.
+
+    Requires materialising the transposed/flipped transitions ``C`` (and the
+    flips/shifts around it), which is what ``triton_fused_bwd`` avoids. Kept for
+    the widths where the flipped scan can use the log-depth slab kernel.
+    """
+    D = A.shape[2]
+    T = A.shape[1]
+    # Reverse adjoint scan: s_t = grad_y_t + A_{t+1}^T s_{t+1}.
+    # Rewritten as a forward scan on flipped time with transitions
+    # C_tau = A_{T-tau}^T  =>  C[0] = I, C[1:] = flip(A^T)[:-1].
+    AT_flip = torch.flip(A.transpose(-1, -2), dims=[1])
+    C = torch.empty_like(A)
+    C[:, 0] = torch.eye(D, device=A.device, dtype=A.dtype)
+    if T > 1:
+        C[:, 1:] = AT_flip[:, :-1]
+    grad_y_flip = torch.flip(grad_y, dims=[1]).contiguous()
+
+    with torch.no_grad():
+        s_flip = _KERNELS[mode](C.contiguous(), grad_y_flip)
+    s = torch.flip(s_flip, dims=[1])  # dL/dh_t
+
+    # grad_A_t = s_t (outer) y_{t-1}, with y_{-1} = 0.
+    y_prev = torch.zeros_like(y)
+    if T > 1:
+        y_prev[:, 1:] = y[:, :-1]
+    grad_A = s.unsqueeze(-1) * y_prev.unsqueeze(-2)
+    return grad_A, s
+
+
+class _TritonAffineScanFusedBwd(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, A, b, mode):
+        A = A.contiguous()
+        b = b.contiguous()
+        with torch.no_grad():
+            y = _KERNELS[mode](A, b)
+        ctx.save_for_backward(A, y)
+        ctx.mode = mode
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_y):
+        A, y = ctx.saved_tensors
+        if fused_backward_supported(A.shape[2]):
+            grad_A, grad_b = fused_scan_backward(A, y, grad_y)
+        else:
+            grad_A, grad_b = _materialising_backward(A, y, grad_y, ctx.mode)
+        return grad_A, grad_b, None
+
+
 class _TritonAffineScan(torch.autograd.Function):
     @staticmethod
     def forward(ctx, A, b, mode):
@@ -491,29 +552,7 @@ class _TritonAffineScan(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_y):
         A, y = ctx.saved_tensors
-        mode = ctx.mode
-        BB, T, D, _ = A.shape
-
-        # Reverse adjoint scan: s_t = grad_y_t + A_{t+1}^T s_{t+1}.
-        # Rewritten as a forward scan on flipped time with transitions
-        # C_tau = A_{T-tau}^T  =>  C[0] = I, C[1:] = flip(A^T)[:-1].
-        AT_flip = torch.flip(A.transpose(-1, -2), dims=[1])
-        C = torch.empty_like(A)
-        C[:, 0] = torch.eye(D, device=A.device, dtype=A.dtype)
-        if T > 1:
-            C[:, 1:] = AT_flip[:, :-1]
-        grad_y_flip = torch.flip(grad_y, dims=[1]).contiguous()
-
-        with torch.no_grad():
-            s_flip = _KERNELS[mode](C.contiguous(), grad_y_flip)
-        s = torch.flip(s_flip, dims=[1])  # dL/dh_t
-
-        grad_b = s
-        # grad_A_t = s_t (outer) y_{t-1}, with y_{-1} = 0.
-        y_prev = torch.zeros_like(y)
-        if T > 1:
-            y_prev[:, 1:] = y[:, :-1]
-        grad_A = s.unsqueeze(-1) * y_prev.unsqueeze(-2)
+        grad_A, grad_b = _materialising_backward(A, y, grad_y, ctx.mode)
         return grad_A, grad_b, None
 
 
@@ -523,6 +562,10 @@ def triton_affine_scan(A: torch.Tensor, b: torch.Tensor, mode: str) -> torch.Ten
     A: (BB, T, D, D), b: (BB, T, D) -> y: (BB, T, D), solving
     h_t = A_t @ h_{t-1} + b_t (inclusive).
     """
+    if mode in _FUSED_BWD_MODES:
+        return _TritonAffineScanFusedBwd.apply(A, b, _FUSED_BWD_MODES[mode])
     if mode not in _KERNELS:
-        raise ValueError(f"unknown triton scan mode: {mode!r} (choose from {list(_KERNELS)})")
+        raise ValueError(
+            f"unknown triton scan mode: {mode!r} "
+            f"(choose from {list(_KERNELS) + list(_FUSED_BWD_MODES)})")
     return _TritonAffineScan.apply(A, b, mode)

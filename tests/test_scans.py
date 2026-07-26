@@ -23,13 +23,16 @@ from mad.model.layers.bdlru_sel import BDLRU_sel
 from mad.model.layers.hlru_sel import HLRU_sel
 
 
-TRITON_MODES = ["sequential", "persistent", "blelloch", "chunked", "auto"]
+TRITON_MODES = ["sequential", "persistent", "blelloch", "chunked", "auto", "auto_v2"]
 TRITON_IMPLS = [
     "triton_sequential",
     "triton_persistent",
     "triton_parallel_blelloch",
     "triton_chunked",
     "triton_auto",
+    "triton_auto_v2",
+    "triton_auto_v2_compile",
+    "triton_fused_gates",
 ]
 
 # blelloch and chunked both reassociate the scan into fp32 matrix products, so
@@ -41,10 +44,13 @@ _REASSOC_FWD, _REASSOC_BWD = 5e-3, 3e-2
 FWD_ATOL = {
     "sequential": _EXACT, "persistent": _EXACT,
     "blelloch": _REASSOC_FWD, "chunked": _REASSOC_FWD, "auto": _REASSOC_FWD,
+    # same forward as `auto`; only the backward differs
+    "auto_v2": _REASSOC_FWD,
 }
 BWD_ATOL = {
     "sequential": _EXACT, "persistent": _EXACT,
     "blelloch": _REASSOC_BWD, "chunked": _REASSOC_BWD, "auto": _REASSOC_BWD,
+    "auto_v2": _REASSOC_BWD,
 }
 LAYER_ATOL = {  # implementation -> (fwd, grad) abs tolerance vs the reference
     "affine_scan_torch_impl": (_EXACT, _EXACT),
@@ -55,6 +61,12 @@ LAYER_ATOL = {  # implementation -> (fwd, grad) abs tolerance vs the reference
     "triton_parallel_blelloch": (_REASSOC_FWD, _REASSOC_BWD),
     "triton_chunked": (_REASSOC_FWD, _REASSOC_BWD),
     "triton_auto": (_REASSOC_FWD, _REASSOC_BWD),
+    "triton_auto_v2": (_REASSOC_FWD, _REASSOC_BWD),
+    "triton_auto_v2_compile": (_REASSOC_FWD, _REASSOC_BWD),
+    # at m=1 it computes the gates inside the kernel and steps the recurrence, so
+    # it is as exact as `sequential`; wider blocks fall back to auto_v2, which
+    # reassociates, so the looser bound has to cover it
+    "triton_fused_gates": (_REASSOC_FWD, _REASSOC_BWD),
 }
 
 

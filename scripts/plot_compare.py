@@ -50,6 +50,7 @@ FIGURES_ROOT = 'figures'
 # canonical hero + the order implementations are drawn/listed in
 DEFAULT_HERO = 'triton_persistent'
 IMPL_ORDER = [
+    'triton_fused_gates', 'triton_auto_v2_compile', 'triton_auto_v2',
     'triton_auto', 'triton_chunked',
     'triton_persistent', 'triton_sequential', 'triton_parallel_blelloch',
     'hopscan_custom', 'custom_hopscan_autotune', 'affine_scan_torch_impl',
@@ -60,6 +61,9 @@ IMPL_ORDER = [
 ]
 
 PRETTY = {
+    'triton_fused_gates': 'Triton fused gates',
+    'triton_auto_v2': 'Triton auto v2',
+    'triton_auto_v2_compile': 'Triton auto v2 (compiled)',
     'triton_auto': 'Triton auto',
     'triton_chunked': 'Triton chunked',
     'triton_persistent': 'Triton persistent',
@@ -79,6 +83,9 @@ PRETTY = {
 
 # hero gets the bold red "hero" style; baselines get distinct colors/markers.
 STYLE = {
+    'triton_fused_gates': dict(color='#03071e', marker='*', lw=2.8, z=7),
+    'triton_auto_v2': dict(color='#f48c06', marker='<', lw=2.0, z=5),
+    'triton_auto_v2_compile': dict(color='#dc2f02', marker='>', lw=2.6, z=6),
     'triton_auto': dict(color='#c1121f', marker='*', lw=2.8, z=6),
     'triton_chunked': dict(color='#7b2cbf', marker='h', lw=2.0, z=4),
     'triton_persistent': dict(color='#d1495b', marker='o', lw=2.6, z=5),

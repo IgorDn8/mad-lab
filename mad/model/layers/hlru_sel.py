@@ -28,6 +28,21 @@ _TRITON_SCAN_MODES = {
     "triton_chunked": "chunked",
     # picks chunked/persistent/sequential from (batch*hidden_dim, T, window_dim)
     "triton_auto": "auto",
+    # same forward as triton_auto, but the backward runs the fused reverse
+    # kernels instead of materialising flipped/transposed copies of A
+    "triton_auto_v2": "auto_v2",
+}
+
+# As above, but the softmax/gating/layout chain around the scan is handed to
+# inductor instead of running as eager elementwise kernels. Separate from
+# _TRITON_SCAN_MODES so the un-compiled variants stay selectable for A/B.
+_TRITON_COMPILED_MODES = {
+    "triton_auto_compile": "auto",
+    "triton_auto_v2_compile": "auto_v2",
+    # H-LRU's transition is a companion matrix, not a per-row softmax, so the
+    # fused-gate kernel (which computes BD-LRU's gating inside the scan) does not
+    # apply here; the name stays selectable and falls back to the compiled path.
+    "triton_fused_gates": "auto_v2",
 }
 
 
@@ -64,6 +79,39 @@ _hopscan_custom_recurrence_autotune = (
     if hopscan_opt is not None
     else None
 )
+
+
+def _triton_gate_inputs(
+    gates: torch.Tensor, v: torch.Tensor, A_temp: torch.Tensor, window_dim: int
+):
+    """Softmax gating -> the (batch*hidden, T, m, m) layout the triton scans take.
+
+    The scan kernel is only a few percent of the step; most of it goes to eager
+    elementwise launches, above all the ``permute(...).reshape(...)`` on the two
+    largest tensors, which each materialise a copy (plus a mirror in the
+    backward). Isolating the chain here lets inductor fuse it.
+    """
+    B, T, N = gates.shape[0], gates.shape[1], gates.shape[2]
+    A_t = torch.softmax(gates, -1)
+    A_t, a0v = _companion_A_and_b(A_temp, A_t, v)
+    # triton affine scan is also left-multiply; transpose to match orig
+    A_t = A_t.transpose(-1, -2)
+    BB = B * N
+    A_bb = A_t.permute(0, 2, 1, 3, 4).reshape(BB, T, window_dim, window_dim)
+    b_bb = a0v.permute(0, 2, 1, 3).reshape(BB, T, window_dim)
+    return A_bb, b_bb
+
+
+def _triton_scan_output(y: torch.Tensor, B: int, T: int, N: int, window_dim: int):
+    """(BB, T, m) scan output -> (B, T, N*m)."""
+    y = y.reshape(B, N, T, window_dim).permute(0, 2, 1, 3)
+    return y.reshape(B, T, N * window_dim)
+
+
+_triton_gate_inputs_autotune = torch.compile(
+    _triton_gate_inputs, mode="max-autotune", dynamic=False)
+_triton_scan_output_autotune = torch.compile(
+    _triton_scan_output, mode="max-autotune", dynamic=False)
 
 
 # @torch.compile(mode="max-autotune", dynamic=False)
@@ -171,6 +219,19 @@ class HLRU_sel(nn.Module):
 
             y = y.reshape(B, self.hidden_dim, T, self.window_dim).permute(0, 2, 1, 3)
             y = y.reshape(B, T, self.hidden_dim * self.window_dim)
+
+        elif self.implementation in _TRITON_COMPILED_MODES:
+
+            # identical math to the branch above; the gating and layout chains
+            # are compiled, and the scan stays an opaque op between them.
+            A_bb, b_bb = _triton_gate_inputs_autotune(
+                gates, v, self.A_temp, self.window_dim)
+
+            y = triton_affine_scan(A_bb, b_bb,
+                                   _TRITON_COMPILED_MODES[self.implementation])  # BB T m
+
+            y = _triton_scan_output_autotune(
+                y, B, T, self.hidden_dim, self.window_dim)
 
         elif self.implementation == "orig_save_dynamics":
             #b t c

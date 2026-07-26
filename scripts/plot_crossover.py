@@ -49,6 +49,7 @@ from scripts.plot_compare import _impl_of, _block_of, _pretty, _style, FIGURES_R
 # Family membership. "parallel" = sub-linear depth; "sequential" = O(T) depth.
 PARALLEL = {'triton_parallel_blelloch', 'affine_scan_torch_impl', 'hopscan_custom',
             'custom_hopscan_autotune', 'triton_chunked', 'triton_auto',
+            'triton_auto_v2', 'triton_auto_v2_compile', 'triton_fused_gates',
             'affine_scan', 'hopscan_opt'}
 SEQUENTIAL = {'triton_sequential', 'triton_persistent', 'orig'}
 

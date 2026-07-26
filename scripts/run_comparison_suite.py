@@ -107,7 +107,15 @@ _ISO_LRU_IMPL_LABELS = {
     'hopscan_custom': 'hopscan',                 # eager parallel hopscan
     'triton_auto': 'triton_auto',                # occupancy-aware Triton scan
     'custom_hopscan_autotune': 'compile',        # torch.compile(max-autotune) hopscan
+    # fused reverse-scan backward + inductor-compiled gate/layout chain: strictly
+    # faster and much lighter on memory than triton_auto (see README)
+    'triton_auto_v2_compile': 'triton_v2',
+    # gating computed inside the scan kernel, so A is never materialised. Fully
+    # fused at m=1 only; wider blocks fall back to triton_auto_v2_compile's path.
+    'triton_fused_gates': 'triton_v3',
 }
+# impls that call torch.compile(max-autotune), so recompile per shape
+_ISO_COMPILE_GUARDED = {'custom_hopscan_autotune', 'triton_auto_v2_compile'}
 _ISO_LRU_IMPLS_DEFAULT = ['orig', 'hopscan_custom', 'triton_auto']
 # per-impl sequence-length caps (impls whose cost is ~linear in T). `orig` is a slow
 # Python loop -> cut it hardest so its long-T cells don't dominate wall-clock.
@@ -139,10 +147,15 @@ def _iso_entries(dim: int, suffix: str, lru_impls: list[str] | None = None) -> l
                     sweep=[v for v in _ISO_SEQ if v <= cap] if cap else _ISO_SEQ,
                     # max-autotune recompiles per shape and can take minutes: run each
                     # seq_len under a wall-clock timeout so a runaway compile is killed.
-                    compile_guard=(impl == 'custom_hopscan_autotune'),
+                    compile_guard=(impl in _ISO_COMPILE_GUARDED),
                 ))
+    # PDSSM's recurrence is complex-valued (complex64); autocast to bf16 breaks the
+    # complex matmuls ("Expected ... Float ... got BFloat16"), so it MUST run in fp32.
+    # Use the parallel prefix scan (associative_scan): ~28x faster than the sequential
+    # for-loop at matched batch/seq (memory-heavier, but that's the frontier we want).
     e.append(dict(tag='pdssm', layers=[f'pdssm-d{dim}-{suffix}'],
-                  precision=_ISO_PRECISION, sweep=_ISO_SEQ))
+                  overrides={'implementation': 'associative_scan'},
+                  precision='32', sweep=_ISO_SEQ))
     e.append(dict(tag='mamba2', layers=[f'mamba2-fla-d{dim}-{suffix}'],
                   precision=_ISO_PRECISION, sweep=_ISO_SEQ))
     e.append(dict(tag='deltanet', layers=[f'dnet-d{dim}-{suffix}'],
