@@ -57,12 +57,54 @@ _LAYER_IMPORTS = [
     ("mad.model.layers.lstm", ["LSTM"]),
     ("mad.model.layers.hlru_o1_v1", ["HLRU_o1_v1"]),
     ("mad.model.layers.hlru_nonsel", ["HLRU_nonsel"]),
-    ("mad.model.layers.deltaproduct", ["dproduct"]),
-    ("mad.model.layers.deltanet", ["dnet"]),
     ("mad.model.layers.mamba_v2", ["MambaV2"]),
-    ("mad.model.layers.mamba2_fla", ["Mamba2fla"]),
     ("mad.model.layers.pdssm", ["PDSSM"]),
 ]
+
+# Layers backed by `flash-linear-attention` (fla), which drags in transformers +
+# triton and costs ~30-40s to import. Importing it eagerly taxes *every* run,
+# even ones building a pure-PyTorch layer (LSTM, BD-LRU, PDSSM, ...). Register
+# these lazily: the proxy stays non-None so availability checks pass, and the
+# real module (and fla) is imported only when the layer is first instantiated.
+_LAZY_LAYER_IMPORTS = [
+    ("mad.model.layers.deltaproduct", ["dproduct"]),
+    ("mad.model.layers.deltanet", ["dnet"]),
+    ("mad.model.layers.mamba2_fla", ["Mamba2fla"]),
+]
+
+
+class _LazyLayer:
+    """Deferred layer class; imports its module (and heavy deps) on first use."""
+
+    def __init__(self, module_path, name):
+        self._module_path = module_path
+        self._name = name
+        self._cls = None
+
+    def _resolve(self):
+        if self._cls is None:
+            try:
+                module = importlib.import_module(self._module_path)
+                self._cls = getattr(module, self._name)
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"layer {self._name!r} requires optional dependencies that "
+                    f"failed to import ({self._module_path}: "
+                    f"{type(exc).__name__}: {exc}); install the 'fla' extra "
+                    "(`uv pip install flash-linear-attention tilelang`)."
+                ) from exc
+        return self._cls
+
+    def __call__(self, *args, **kwargs):
+        return self._resolve()(*args, **kwargs)
+
+    def __getattr__(self, item):
+        # only delegate public attributes so unpickling / internal probes that
+        # look for dunder or private names don't force a (heavy) import.
+        if item.startswith('_'):
+            raise AttributeError(item)
+        return getattr(self._resolve(), item)
+
 
 _unavailable = {}
 for _module_path, _names in _LAYER_IMPORTS:
@@ -74,6 +116,11 @@ for _module_path, _names in _LAYER_IMPORTS:
         for _name in _names:
             globals()[_name] = None
         _unavailable[_module_path] = f"{type(_exc).__name__}: {_exc}"
+
+# fla-backed layers: bind proxies without importing anything now.
+for _module_path, _names in _LAZY_LAYER_IMPORTS:
+    for _name in _names:
+        globals()[_name] = _LazyLayer(_module_path, _name)
 
 if _unavailable:
     _details = "; ".join(f"{_m} ({_e})" for _m, _e in _unavailable.items())
