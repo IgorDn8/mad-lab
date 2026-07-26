@@ -11,3 +11,5 @@ results/
 figures/
 run_logs/
 *.log
+# ad-hoc tmux launchers for individual benchmark runs (hardcoded absolute paths)
+launch_*.sh
