@@ -3,7 +3,7 @@
 For a fixed model width `d` and a target mixer-parameter budget, this solves the
 size knob of each family so its parameter count hits the budget, for tiers:
     d=128  -> 0.33M, 1M
-    d=1024 -> 1M, 10M, 100M
+    d=1024 -> 1M, 10M, 33M, 100M
 
 Families and the knob that is solved (all monotonic in the knob):
     LSTM           : hidden_dim
@@ -38,6 +38,7 @@ TIERS = [
     (128, 1_000_000, 'iso1m'),
     (1024, 1_000_000, 'iso1m'),
     (1024, 10_000_000, 'iso10m'),
+    (1024, 33_000_000, 'iso33m'),
     (1024, 100_000_000, 'iso100m'),
 ]
 BLOCKS = [1, 2, 4, 8, 16]

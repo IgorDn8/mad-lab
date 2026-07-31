@@ -25,6 +25,7 @@ the questions the benchmark must answer:
 
 Iso-tier sweeps (whole registered iso layers over a full batch x length grid):
   iso-d128-iso1m     iso-param ~1M   @ d=128
+  iso-d1024-iso33m   iso-param ~33M  @ d=1024
   iso-d1024-iso100m  iso-param ~100M @ d=1024
   iso-d128-s1024     iso-state 1024  @ d=128
   iso-d1024-s4096    iso-state 4096  @ d=1024
@@ -245,6 +246,12 @@ REGIMES: dict[str, dict] = {
         num_samples=_ISO_NUM_SAMPLES, autoplot=False, sweep=_ISO_SEQ,
         models=_iso_entries(128, 'iso1m'),
         desc='Iso-param ~1M @ d=128: full B x T grid, all families',
+    ),
+    'iso-d1024-iso33m': dict(
+        dim=1024, suffix='iso33m', batch_grid=_ISO_BATCH, oom_retry=False,
+        num_samples=_ISO_NUM_SAMPLES, autoplot=False, sweep=_ISO_SEQ,
+        models=_iso_entries(1024, 'iso33m'),
+        desc='Iso-param ~33M @ d=1024: full B x T grid, all families',
     ),
     'iso-d1024-iso100m': dict(
         dim=1024, suffix='iso100m', batch_grid=_ISO_BATCH, oom_retry=False,
@@ -611,6 +618,9 @@ def get_args():
     p.add_argument('--dry-run', action='store_true', help='print the plan without running')
     p.add_argument('--iso-batch', nargs='+', type=int, default=None,
                    help='override the batch grid for iso regimes (e.g. --iso-batch 1 4 32 128)')
+    p.add_argument('--iso-seq', nargs='+', type=int, default=None,
+                   help='override the sequence-length sweep for iso regimes exactly '
+                        '(e.g. --iso-seq 4096). Takes precedence over --iso-max-seq.')
     p.add_argument('--iso-max-seq', type=int, default=None,
                    help='drop sweep sequence lengths above this for iso regimes '
                         '(e.g. --iso-max-seq 65536 drops 2^18)')
@@ -619,6 +629,10 @@ def get_args():
                    help='override which BD-LRU/H-LRU scan impls run in iso regimes '
                         '(default: orig hopscan_custom triton_auto). e.g. '
                         '--iso-lru-impls hopscan_custom triton_auto  (drops orig)')
+    p.add_argument('--iso-families', nargs='+', default=None,
+                   help='keep only iso model entries whose tag starts with one of these '
+                        'prefixes (e.g. --iso-families bdlru hlru deltanet deltaproduct). '
+                        'Tags look like bdlru-wd1-triton_v2, deltanet, deltaproduct2, ...')
     p.add_argument('--step-ceiling-ms', type=float, default=None,
                    help='per-step latency ceiling (ms): a cell whose step exceeds it is '
                         'aborted early and recorded as capped_step:>Nms (off-chart sentinel). '
@@ -631,15 +645,29 @@ def get_args():
     return p.parse_args()
 
 
-def _apply_iso_overrides(regime: dict, iso_batch, iso_max_seq, iso_lru_impls=None) -> None:
+def _apply_iso_overrides(regime: dict, iso_batch, iso_max_seq, iso_lru_impls=None,
+                         iso_seq=None, iso_families=None) -> None:
     """Mutate an iso regime in place per the --iso-* overrides (no-op otherwise)."""
     # Rebuild the model entries with a chosen BD-LRU/H-LRU impl set first, so the
     # sequence-length filtering below applies to the rebuilt sweeps too.
     if iso_lru_impls is not None and regime.get('suffix') is not None:
         regime['models'] = _iso_entries(regime['dim'], regime['suffix'], iso_lru_impls)
+    if iso_families is not None and regime.get('models') is not None:
+        prefixes = tuple(iso_families)
+        regime['models'] = [
+            e for e in regime['models']
+            if any(e['tag'] == p or e['tag'].startswith(p) for p in prefixes)
+        ]
     if iso_batch is not None and regime.get('batch_grid') is not None:
         regime['batch_grid'] = list(iso_batch)
-    if iso_max_seq is not None:
+    if iso_seq is not None:
+        seq = list(iso_seq)
+        if 'sweep' in regime:
+            regime['sweep'] = seq
+        for entry in regime.get('models') or []:
+            if 'sweep' in entry:
+                entry['sweep'] = list(seq)
+    elif iso_max_seq is not None:
         if 'sweep' in regime:
             regime['sweep'] = [v for v in regime['sweep'] if v <= iso_max_seq]
         for entry in regime.get('models') or []:
@@ -652,7 +680,8 @@ def main():
     print(f"BD-LRU comparison suite: regimes={args.regime}\n  impls={args.impls}\n  fresh={args.fresh}")
     for name in args.regime:
         regime = REGIMES[name]
-        _apply_iso_overrides(regime, args.iso_batch, args.iso_max_seq, args.iso_lru_impls)
+        _apply_iso_overrides(regime, args.iso_batch, args.iso_max_seq, args.iso_lru_impls,
+                             iso_seq=args.iso_seq, iso_families=args.iso_families)
         run_regime(name, regime, args.impls, args.dry_run, args.fresh,
                    step_ceiling_ms=args.step_ceiling_ms,
                    per_cell_timeout=args.per_cell_timeout_s)

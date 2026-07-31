@@ -335,6 +335,91 @@
     "cfg_path": "configs/layers/dproduct-hh8-d1024-iso10m.yml"
   },
   {
+    "name": "lstm-d1024-iso33m",
+    "family": "lstm",
+    "cfg_path": "configs/layers/lstm-d1024-iso33m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd1-d1024-iso33m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd1-d1024-iso33m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd2-d1024-iso33m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd2-d1024-iso33m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd4-d1024-iso33m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd4-d1024-iso33m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd8-d1024-iso33m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd8-d1024-iso33m.yml"
+  },
+  {
+    "name": "bdlru-sel-wd16-d1024-iso33m",
+    "family": "bdlru",
+    "cfg_path": "configs/layers/bdlru-sel-wd16-d1024-iso33m.yml"
+  },
+  {
+    "name": "hlru-sel-wd1-d1024-iso33m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd1-d1024-iso33m.yml"
+  },
+  {
+    "name": "hlru-sel-wd2-d1024-iso33m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd2-d1024-iso33m.yml"
+  },
+  {
+    "name": "hlru-sel-wd4-d1024-iso33m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd4-d1024-iso33m.yml"
+  },
+  {
+    "name": "hlru-sel-wd8-d1024-iso33m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd8-d1024-iso33m.yml"
+  },
+  {
+    "name": "hlru-sel-wd16-d1024-iso33m",
+    "family": "hlru",
+    "cfg_path": "configs/layers/hlru-sel-wd16-d1024-iso33m.yml"
+  },
+  {
+    "name": "pdssm-d1024-iso33m",
+    "family": "pdssm",
+    "cfg_path": "configs/layers/pdssm-d1024-iso33m.yml"
+  },
+  {
+    "name": "mamba2-fla-d1024-iso33m",
+    "family": "mamba2",
+    "cfg_path": "configs/layers/mamba2-fla-d1024-iso33m.yml"
+  },
+  {
+    "name": "dnet-d1024-iso33m",
+    "family": "dnet",
+    "cfg_path": "configs/layers/dnet-d1024-iso33m.yml"
+  },
+  {
+    "name": "dproduct-hh2-d1024-iso33m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh2-d1024-iso33m.yml"
+  },
+  {
+    "name": "dproduct-hh4-d1024-iso33m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh4-d1024-iso33m.yml"
+  },
+  {
+    "name": "dproduct-hh8-d1024-iso33m",
+    "family": "dproduct",
+    "cfg_path": "configs/layers/dproduct-hh8-d1024-iso33m.yml"
+  },
+  {
     "name": "lstm-d1024-iso100m",
     "family": "lstm",
     "cfg_path": "configs/layers/lstm-d1024-iso100m.yml"
