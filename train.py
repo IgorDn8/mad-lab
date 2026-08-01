@@ -77,7 +77,14 @@ def get_args():
     parser.add_argument('--resume', action=argparse.BooleanOptionalAction, default=True, help='if True, resume from checkpoints/last.ckpt when the log dir exists without results.csv')
     #parser.add_argument('--save-steps', type=int, default=None, help='save checkpoint every n steps')
     parser.add_argument('--profile', action=argparse.BooleanOptionalAction, default=False, help='if True, profiler infor is written into log file')
-
+    parser.add_argument(
+        '--limit-train-batches', type=int, default=0,
+        help='if >0, train on at most this many batches per epoch (for timing probes)',
+    )
+    parser.add_argument(
+        '--skip-final-validate', action=argparse.BooleanOptionalAction, default=False,
+        help='if True, skip post-training validate() passes (faster timing probes)',
+    )
 
     # data:
     parser.add_argument('--data-path', type=str, default='./data', help='path where generated data are stored')
@@ -118,6 +125,8 @@ def train(
     save_checkpoints: bool = True,
     profile: bool = False,
     resume: bool = True,
+    limit_train_batches: int = 0,
+    skip_final_validate: bool = False,
 ) -> pd.DataFrame:
     """
     Train a model with given configuration and log results.
@@ -220,7 +229,7 @@ def train(
         verbose=True,
         mode='max'
     )
-    callbacks = [early_stop]
+    callbacks = [] if skip_final_validate else [early_stop]
 
     if save_checkpoints and log_path is not None:
         checkpoint_best = pl.callbacks.ModelCheckpoint(
@@ -285,6 +294,9 @@ def train(
         callbacks=callbacks,
         precision=mad_config.precision,
         profiler=profiler,
+        limit_train_batches=limit_train_batches if limit_train_batches > 0 else 1.0,
+        limit_val_batches=0 if skip_final_validate else 1.0,
+        num_sanity_val_steps=0 if skip_final_validate else 2,
     )
 
     # save initial configuration before training
@@ -297,6 +309,10 @@ def train(
 
     trainer.fit(model_wrapped, train_dl, test_dl, ckpt_path=resume_ckpt)
     # Evaluate Final Performance.
+    if skip_final_validate:
+        param_num = sum(p.numel() for p in model_wrapped.parameters() if p.requires_grad)
+        return pd.DataFrame({'model_size': param_num}, index=[0])
+
     # weights_only=False: checkpoints include MADConfig hyperparameters (see mad/configs.py).
     results_train = trainer.validate(dataloaders=train_dl, weights_only=False)[0]
     results_test = trainer.validate(dataloaders=test_dl, weights_only=False)[0]
@@ -374,4 +390,6 @@ if __name__ == '__main__':
         save_checkpoints=args['save_checkpoints'],
         profile=args["profile"],
         resume=args['resume'],
+        limit_train_batches=args['limit_train_batches'],
+        skip_final_validate=args['skip_final_validate'],
     )
