@@ -101,11 +101,11 @@ def _family_configs(dim, target, tag):
     # PDSSM: solve hidden_dim
     def _pdssm(N):
         return _params(PDSSM(dim=dim, hidden_dim=N, dictionary_size=8, hidden_D_multiple=2,
-                             dropout_rate=0.01, implementation='sequential', max_length=MAX_LENGTH))
+                             dropout_rate=0.01, implementation='associative_scan', max_length=MAX_LENGTH))
     n, p = _solve(_pdssm, target, lo=1, step=1)
     out.append((f'pdssm-d{dim}-{tag}', 'pdssm',
                 {'dim': dim, 'hidden_dim': n, 'dictionary_size': 8, 'hidden_D_multiple': 2,
-                 'dropout_rate': 0.01, 'implementation': 'sequential'}, p))
+                 'dropout_rate': 0.01, 'implementation': 'associative_scan'}, p))
 
     # Mamba2: solve expand (state_size=128, head_dim=64 fixed). Skip tiers whose
     # budget is below Mamba2's floor (expand=1) by a wide margin -- e.g. d=1024/1M,
