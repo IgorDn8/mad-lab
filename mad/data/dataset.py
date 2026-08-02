@@ -30,6 +30,41 @@ def check_for_leakage(train_inputs, test_inputs):
 
 # infrastructure for datasets that are kept in memory:
 
+def generate_or_load_dataset(
+    instance_fn,
+    instance_fn_kwargs,
+    data_path: str | None,
+    num_examples: int,
+    num_workers: int,
+    is_training: bool = False,
+    verbose: bool = True,
+) -> "MemoryDataset":
+    """
+    Generate or load a single MemoryDataset split.
+
+    Used by OOD eval to materialize a longer test set without touching train data.
+    """
+    kwargs = dict(instance_fn_kwargs)
+    kwargs['is_training'] = is_training
+    dataset = MemoryDataset(
+        instance_fn=instance_fn,
+        instance_fn_kwargs=kwargs,
+        verbose=verbose,
+    )
+    if data_path is not None and os.path.exists(data_path):
+        if verbose:
+            print(f'Data exists, loading from: {data_path}')
+        dataset.load_data(data_path)
+    else:
+        dataset.generate_data(num_examples=num_examples, num_workers=num_workers)
+        if data_path is not None:
+            dataset.save_data(data_path)
+    assert len(dataset) == num_examples, (
+        f'Dataset at "{data_path}" has {len(dataset)} samples but expected {num_examples}.'
+    )
+    return dataset
+
+
 def generate_data(
     instance_fn,
     instance_fn_kwargs,
@@ -57,71 +92,28 @@ def generate_data(
         dict: dictionary with keys 'train' and 'test' containing torch datasets
     """
 
-    # Make Training Data.
-
-    train_data_exists = os.path.exists(train_data_path)
-    train_instance_fn_kwargs = dict(instance_fn_kwargs)
-    train_instance_fn_kwargs['is_training'] = True
-    training_dataset = MemoryDataset(
+    training_dataset = generate_or_load_dataset(
         instance_fn=instance_fn,
-        instance_fn_kwargs=train_instance_fn_kwargs,
-        verbose=verbose
+        instance_fn_kwargs=instance_fn_kwargs,
+        data_path=train_data_path,
+        num_examples=num_train_examples,
+        num_workers=num_workers,
+        is_training=True,
+        verbose=verbose,
     )
-
-    if train_data_path is not None and train_data_exists:
-        if verbose:
-            print(f'Training data exists, loading from: {train_data_path}')
-        training_dataset.load_data(train_data_path)
-    
-    elif train_data_path is not None and not train_data_exists:
-        training_dataset.generate_data(
-            num_examples=num_train_examples,
-            num_workers=num_workers
-        )
-        training_dataset.save_data(train_data_path)
-    
-    else:
-        training_dataset.generate_data(
-            num_examples=num_train_examples,
-            num_workers=num_workers
-        )     
-
-    # Make Test Data.   
-
-    test_data_exists = os.path.exists(test_data_path)
-    test_instance_fn_kwargs = dict(instance_fn_kwargs)
-    test_instance_fn_kwargs['is_training'] = False
-    test_dataset = MemoryDataset(
+    test_dataset = generate_or_load_dataset(
         instance_fn=instance_fn,
-        instance_fn_kwargs=test_instance_fn_kwargs,
-        verbose=verbose
+        instance_fn_kwargs=instance_fn_kwargs,
+        data_path=test_data_path,
+        num_examples=num_test_examples,
+        num_workers=num_workers,
+        is_training=False,
+        verbose=verbose,
     )
-
-    if test_data_path is not None and test_data_exists:
-        if verbose:
-            print(f'Test data exists, loading from: {test_data_path}')
-        test_dataset.load_data(test_data_path)
-        
-    elif test_data_path is not None and not test_data_exists:
-        test_dataset.generate_data(
-            num_examples=num_test_examples,
-            num_workers=num_workers
-        )
-        test_dataset.save_data(test_data_path)
-
-    else:    
-        test_dataset.generate_data(
-            num_examples=num_test_examples,
-            num_workers=num_workers
-        )
 
     # Check for data leakage.
 
     check_for_leakage(training_dataset.inputs, test_dataset.inputs)
-    assert training_dataset.inputs.shape[0] == num_train_examples,\
-        f'Training data have {training_dataset.inputs.shape[0]} samples but should have {num_train_examples} samples.'
-    assert test_dataset.inputs.shape[0] == num_test_examples,\
-        f'Test data have {test_dataset.inputs.shape[0]} samples but should have {num_test_examples} samples.'
 
     return {"train": training_dataset, "test": test_dataset}
 

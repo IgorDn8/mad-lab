@@ -8,6 +8,7 @@ Everything in this section is new relative to upstream MAD-Lab; the rest of the 
 - **New synthetic task:** a permutation / state-tracking task on the symmetric group (`group-S`, plus `group-Z` / `group-A`).
 - **Multiple scan implementations** for the linear-recurrent layers (`orig`, PyTorch `associative_scan`, custom `hopscan`, and hand-written Triton kernels — occupancy-aware dispatch, fully fused backward, and gating fused into the kernel), selectable at run time via `--layer-overrides implementation=...`.
 - **A speed-benchmarking harness** to compare these implementations across sequence length, block size, batch size and hidden size. See [Speed benchmarking](#speed-benchmarking-fork-addition).
+- **Length-OOD evaluation** to score finished checkpoints on longer sequences than they were trained on. See [Length OOD evaluation](#length-ood-evaluation-fork-addition).
 - **`uv`-based environment** (`pyproject.toml`) and vendored finite-group utilities for the `group-*` tasks.
 
 ## Running the new models
@@ -63,6 +64,7 @@ For all details on the MAD synthetic tasks and pipeline, see our recent paper on
     - [Training](#training)
     - [Benchmarking](#benchmarking)
         - [Speed benchmarking (fork addition)](#speed-benchmarking-fork-addition)
+    - [Length OOD evaluation (fork addition)](#length-ood-evaluation-fork-addition)
 - [Repository overview](#repository-overview)
 - [The MAD synthetic task suite](#the-mad-synthetic-tasks)
 - [The MAD protocol](#the-mad-protocol)
@@ -164,6 +166,40 @@ results = train(
 )
 ```
 This will train your model in the [in-context recall task](#the-mad-synthetic-tasks) and return a dataframe with an overview of the final training and evaluation performance of your model. 
+
+
+### Length OOD evaluation (fork addition)
+Training always uses a single `seq_len` for both train and test. To study **length extrapolation**, evaluate a finished checkpoint on longer test sequences without retraining.
+
+[eval_ood.py](eval_ood.py) loads `checkpoints/best.ckpt` (else `last.ckpt`) from a completed run directory, rebuilds the model with `max_length` set to the eval length, generates/loads a longer test cache, and writes `ood_results.csv` beside the training `results.csv` (training artifacts are left untouched).
+
+Default eval lengths are `128 512 1024`. Architecture is not stored in the checkpoint, so pass the same `--layers` (and any `--layer-overrides`) used at training time.
+
+```bash
+# single finished run
+uv run python -m eval_ood \
+  --log-path logs_mem_iso1m/runs/bdlru-wd1/<run-dir> \
+  --layers bdlru-sel-wd1-d128-iso1m swiglu bdlru-sel-wd1-d128-iso1m swiglu
+
+# optional: only materialize longer test caches (safe before parallel evals)
+uv run python -m eval_ood --log-path ... --layers ... --prime-only
+```
+
+For a full sweep laid out as `<sweep>/runs/<name>/<run>/`:
+
+```bash
+# primes caches once per seed, then evaluates every finished run
+uv run python -m scripts.run_ood_sweep --sweep-dir logs_mem_iso1m
+
+# plot mean±std accuracy vs length (+ heatmap)
+uv run python -m scripts.plot_ood \
+  --sweep-dir logs_mem_iso1m --name mem-iso1m-ood --vocab-size 4096
+```
+
+Notes:
+- Prefer evaluating only runs that already have `results.csv` (the default). Use `--allow-incomplete` only if you intentionally want mid-training checkpoints.
+- Longer test sets land under `./data/.../sl-{L}/test/` and are reused across models that share the same task settings/seed.
+- Models with hard `max_length` buffers (e.g. AutoEncoder / compression, Hyena filters, some RWKV kernels) need `max_length >= eval_seq_len` at init; most recurrent layers in this fork are length-agnostic.
 
 
 ### Benchmarking
@@ -411,6 +447,9 @@ Important caveats:
 
 benchmark.py -> benchmarking models on MAD
 train.py -> training a model on individual tasks
+eval_ood.py -> post-hoc length-OOD evaluation of finished checkpoints
+scripts/run_ood_sweep.py -> batch OOD eval over a sweep directory
+scripts/plot_ood.py -> plot OOD accuracy vs evaluation length
 .gitignore.py
 README.md
 pyproject.toml -> uv project definition (dependencies + optional cuda extra)
