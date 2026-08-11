@@ -29,6 +29,7 @@ FIGURES_ROOT = 'figures'
 # Keep colours aligned with plot_task_parity.py
 FAMILY_COLORS = [
     ('lstm', '#6c757d'),
+    ('pdssm', '#2a9d8f'),
     ('bdlru', '#0f75bc'),
     ('hlru', '#d1495b'),
     ('deltanet', '#e9a13b'),
@@ -70,6 +71,8 @@ def _marker(name: str) -> str:
         return 's'
     if name == 'lstm':
         return 'D'
+    if name == 'pdssm':
+        return 'P'
     if name.startswith('delta'):
         return '^'
     return 'o'

@@ -20,7 +20,7 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-# run-folder name -> recurrent layer registry key (paired with swiglu x2)
+# run-folder name -> recurrent layer registry key
 NAME_TO_LAYER = {
     'lstm': 'lstm-d128-iso1m',
     'bdlru-wd1': 'bdlru-sel-wd1-d128-iso1m',
@@ -32,17 +32,26 @@ NAME_TO_LAYER = {
     'deltanet': 'dnet-d128-iso1m',
     'deltaprod2': 'dproduct-hh2-d128-iso1m',
     'deltaprod4': 'dproduct-hh4-d128-iso1m',
+    'pdssm': 'pdssm-d128-iso1m',
 }
 
 
-def layers_for(name: str) -> list[str]:
+def layers_for(name: str, ffn: str = 'swiglu', blocks: int = 2) -> list[str]:
+    """Build ``[layer, ffn] * blocks`` for a sweep run-folder name."""
     if name not in NAME_TO_LAYER:
         raise KeyError(
             f'Unknown run name {name!r}. Add it to NAME_TO_LAYER in '
             f'{os.path.basename(__file__)}.'
         )
+    if ffn not in {'swiglu', 'mlp'}:
+        raise ValueError(f'ffn must be swiglu or mlp, got {ffn!r}')
+    if blocks < 1:
+        raise ValueError(f'blocks must be >= 1, got {blocks}')
     layer = NAME_TO_LAYER[name]
-    return [layer, 'swiglu', layer, 'swiglu']
+    out: list[str] = []
+    for _ in range(blocks):
+        out.extend([layer, ffn])
+    return out
 
 
 def discover_runs(sweep_dir: str) -> list[tuple[str, str]]:
@@ -80,6 +89,15 @@ def main() -> None:
                    help='override eval batch size (default: from each checkpoint)')
     p.add_argument('--layer-overrides', nargs='*', default=[],
                    help='e.g. implementation=triton_auto (default: use YAML / training impl)')
+    p.add_argument(
+        '--ffn', type=str, default='swiglu', choices=['swiglu', 'mlp'],
+        help='feed-forward layer paired with each recurrent block '
+             '(mem/FR sweeps use swiglu; group-S iso1m sweeps use mlp)',
+    )
+    p.add_argument(
+        '--blocks', type=int, default=2,
+        help='number of (recurrent, ffn) repeats (default 2; group-S iso1m uses 1)',
+    )
     p.add_argument('--force', action='store_true')
     p.add_argument('--prime-only', action='store_true')
     p.add_argument('--names', nargs='*', default=None,
@@ -96,6 +114,7 @@ def main() -> None:
 
     print(f'Found {len(runs)} runs under {sweep_dir}')
     print(f'Eval lengths: {args.eval_seq_len}')
+    print(f'Stack: [{args.ffn!s} x {args.blocks} block(s)]')
 
     # Prime once per unique (seed, ...) by walking runs; eval_ood --prime-only is
     # idempotent and skips existing caches.
@@ -104,7 +123,7 @@ def main() -> None:
         seed = seed_from_path(log_path)
         if seed is not None and seed in primed_seeds:
             continue
-        layers = layers_for(name)
+        layers = layers_for(name, ffn=args.ffn, blocks=args.blocks)
         cmd = [
             sys.executable, '-m', 'eval_ood',
             '--log-path', log_path,
@@ -127,7 +146,7 @@ def main() -> None:
 
     failed = []
     for i, (name, log_path) in enumerate(runs, 1):
-        layers = layers_for(name)
+        layers = layers_for(name, ffn=args.ffn, blocks=args.blocks)
         print(f'\n[{i}/{len(runs)}] {name}  {os.path.basename(log_path)}')
         cmd = [
             sys.executable, '-m', 'eval_ood',

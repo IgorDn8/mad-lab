@@ -28,9 +28,13 @@ from torch.utils.data import DataLoader
 
 from mad.configs import MADConfig, MADModelConfig
 from mad.data import generate_or_load_dataset
-from mad.helpers import infer_dim_from_layer_names, parse_layer_overrides
+from mad.helpers import (
+    compute_vocab_size,
+    infer_dim_from_layer_names,
+    parse_layer_overrides,
+)
 from mad.model import PLModelWrap
-from mad.registry import layer_registry, validate_layer_names
+from mad.registry import validate_layer_names
 
 
 def get_args():
@@ -184,6 +188,17 @@ def append_result(output_csv: str, row: dict) -> None:
     df.to_csv(output_csv, index=False)
 
 
+def model_vocab_size(mad_config: MADConfig, ckpt: dict) -> int:
+    """Vocab size used to build the model (group tasks store degree n in MADConfig)."""
+    if 'group' in mad_config.task:
+        # Prefer the embedding table in the checkpoint when present.
+        embed = ckpt.get('state_dict', {}).get('model.token_embeds.weight')
+        if embed is not None:
+            return int(embed.shape[0])
+        return compute_vocab_size(mad_config.task, mad_config.vocab_size)
+    return mad_config.vocab_size
+
+
 def evaluate_one(
     *,
     mad_config_train: MADConfig,
@@ -202,6 +217,7 @@ def evaluate_one(
     precision: str,
     accelerator: str,
     prime_only: bool,
+    vocab_size: int | None = None,
 ) -> dict | None:
     train_seq_len = mad_config_train.seq_len
     if eval_seq_len < train_seq_len:
@@ -247,7 +263,7 @@ def evaluate_one(
     model = build_model(
         layers=layers,
         dim=dim,
-        vocab_size=eval_cfg.vocab_size,
+        vocab_size=vocab_size if vocab_size is not None else model_vocab_size(mad_config_train, ckpt),
         max_length=eval_seq_len,
         backbone=backbone,
         layer_overrides=layer_overrides,
@@ -328,6 +344,12 @@ def main() -> None:
     precision = args['precision'] or mad_config_train.precision
     output_csv = args['output'] or os.path.join(log_path, 'ood_results.csv')
     ckpt_name = os.path.basename(ckpt_path)
+    vocab_size = model_vocab_size(mad_config_train, ckpt)
+    if vocab_size != mad_config_train.vocab_size:
+        print(
+            f'Model vocab_size={vocab_size} '
+            f'(MADConfig.vocab_size={mad_config_train.vocab_size} is the group degree / task knob)'
+        )
 
     rows = []
     for eval_seq_len in args['eval_seq_len']:
@@ -353,6 +375,7 @@ def main() -> None:
             precision=precision,
             accelerator=args['accelerator'],
             prime_only=args['prime_only'],
+            vocab_size=vocab_size,
         )
         if row is None:
             continue
