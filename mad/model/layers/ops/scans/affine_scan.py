@@ -1,4 +1,4 @@
-"""Affine parallel-scan primitive (adapted from nisys-bench torch_affine_scan).
+"""Affine parallel-scan primitive built on ``torch.associative_scan``.
 
 Solves the affine (linear) recurrence
 
@@ -12,7 +12,7 @@ in a channelized layout so the same code covers dense (C=1) and block-diagonal
     y: (B, T, C, D)          outputs (hidden states)
 
 Unlike ``hopscan_custom`` (which wraps a hand-written autograd Function),
-this mirrors ``nisys-bench/models/torch_affine_scan.py``: it scans the *time*
+this scans the *time*
 dimension (dim=1) with ``torch.associative_scan`` in ``generic`` combine mode and
 lets autograd differentiate straight through the higher-order op. Scanning a
 non-trailing axis is what makes this work where a trailing-axis parallel scan

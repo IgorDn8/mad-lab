@@ -42,7 +42,7 @@ cells already present -- so adding a NEW implementation, block/hidden/batch valu
 or even a new sequence length only runs the missing cells. Use --fresh to wipe a
 regime and recompute from scratch. OOM/error cells count as done (not retried).
 
-Correctness / precision (Q1/Q7) live in scripts/verify_scans.py, not here.
+Correctness / precision checks live in scripts/verify_scans.py, not here.
 
 Usage:
     uv run python -m scripts.run_comparison_suite --fresh          # clean full run

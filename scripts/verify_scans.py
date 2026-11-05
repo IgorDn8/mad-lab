@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Numerical correctness & precision reporter for BD-LRU scan implementations (Q1/Q7).
+"""Numerical correctness & precision reporter for BD-LRU scan implementations.
 
 Unlike ``tests/test_scans.py`` (pass/fail asserts), this emits a *quantitative
 error table* -- the artifact a reviewer expects -- reporting forward and backward

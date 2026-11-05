@@ -1,562 +1,378 @@
-# $\text{MAD}$-Lab
+# Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks
 
-This repository is a fork of the original MAD-Lab repository [Mechanistic Design and Scaling of Hybrid Architectures](https://arxiv.org/abs/2403.17844). This repository provides code for the paper "Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks".
+**NeurIPS 2026** · [arXiv:2602.12021](https://arxiv.org/abs/2602.12021)
 
-### What this fork adds (on top of original MAD-Lab)
-Everything in this section is new relative to upstream MAD-Lab; the rest of the README documents the original framework.
-- **New models:** BD-LRU (`bdlru-sel-*`), H-LRU (`hlru-sel-*`), PDSSM (`pdssm-d128-h*`), Mamba2 (`mamba2-fla-d128`), DeltaNet (`dnet-*`) and DeltaProduct (`dproduct-*`). See [Provided architecture primitives](#provided-architecture-primitives).
-- **New synthetic task:** a permutation / state-tracking task on the symmetric group (`group-S`, plus `group-Z` / `group-A`).
-- **Multiple scan implementations** for the linear-recurrent layers (`orig`, PyTorch `associative_scan`, custom `hopscan`, and hand-written Triton kernels — occupancy-aware dispatch, fully fused backward, and gating fused into the kernel), selectable at run time via `--layer-overrides implementation=...`.
-- **A speed-benchmarking harness** to compare these implementations across sequence length, block size, batch size and hidden size. See [Speed benchmarking](#speed-benchmarking-fork-addition).
-- **Length-OOD evaluation** to score finished checkpoints on longer sequences than they were trained on. See [Length OOD evaluation](#length-ood-evaluation-fork-addition).
-- **`uv`-based environment** (`pyproject.toml`) and vendored finite-group utilities for the `group-*` tasks.
+Igor Dubinin, Antonio Orvieto, Felix Effenberger
 
-## Running the new models
-Training runs are launched through [train.py](train.py). Layer names are defined in [mad/registry.py](mad/registry.py) and usually match files in [configs/layers/](configs/layers/) without the `.yml` suffix.
+<p align="center">
+  <a href="assets/neurips_poster.png"><img src="assets/neurips_poster_thumbnail.png" width="800" alt="NeurIPS 2026 poster (click for full resolution)"></a>
+</p>
 
-For example, to train the selective BD-LRU variant on the new permutation/state-tracking task:
-```bash
-python -m train --task group-S --layers bdlru-sel-wd1-d128-h32 swiglu bdlru-sel-wd1-d128-h32 swiglu
-```
+This repository contains the synthetic-task experiments, the BD-LRU / H-LRU layer implementations, their parallel-scan kernels, and the speed-benchmarking harness used in the paper. It is a fork of [MAD-Lab](https://github.com/athms/mad-lab) ([Mechanistic Design and Scaling of Hybrid Architectures](https://arxiv.org/abs/2403.17844)), which provides the synthetic-task training pipeline and the baseline primitives we build on.
 
-To train the selective H-LRU variant on the same task:
-```bash
-python -m train --task group-S --layers hlru-sel-wd1-d128-h32 swiglu hlru-sel-wd1-d128-h32 swiglu
-```
+### Project repositories
 
-Use the `group-S` task for the permutation task based on the symmetric group. You can replace the layer names with other registered variants, such as larger `bdlru-sel-*` or `hlru-sel-*` configs, or with non-selective variants when corresponding configs are registered.
-
-Iso-parameter tiers (e.g. `pdssm-d128-iso1m`, `bdlru-sel-wd4-d128-iso1m`) are generated configs for ~matched parameter budgets and work in `train.py` the same way as manually sized layers. Regenerate them with `uv run python -m scripts.gen_iso_param_sweeps` if needed. Example:
-
-```bash
-uv run python -m train --task group-S --vocab-size 5 --seq-len 16 \
-  --layers pdssm-d128-iso1m swiglu pdssm-d128-iso1m swiglu \
-  --precision 32 --log-base-path logs_gs_pdssm
-```
-
-`train.py` infers `--dim` from the `-d<width>-` tag in layer names and sets `max_length` from `--seq-len`. Use `--layer-overrides implementation=associative_scan` to change scan implementations on supported layers.
-
-<div align="center">
-<img src="./assets/title-image.png" alt="title" width=750"/>
-    
-$\rightarrow$ A laboratory to improve and accelerate deep learning architecture protoyping using simple synthetic tasks.
-</div>
-
-
-**Mechanistic Architecture Design (in-short MAD)** represents a simple framework to accelerate the deep learning architecture design process. MAD uses simple synthetic tasks that can be implemented quickly and without much compute to predict how well new candidate architectures will perform at scale in sequence modeling. Each synthetic task is specifically designed to probe skills of a model relevant for sequence modeling, such as compression and recall.
-
-<u>*Why do we care about MAD?*</u> ...because we find that it accurately indicates compute-optimal perplexity of language models at scale:
-
-<div align="center">
-<img src="./assets/mad_to_scale.png" alt="mad-to-scale" width="700"/>
-</div>
-
-In addition to providing an implementation of the MAD synthetic task suite, this repository provides an implementation of several state-of-the-art layer primitives to allow for easy architecture prototyping, such as attention, Hyena, Mamba, and Gated Linear Attention.
-
-For all details on the MAD synthetic tasks and pipeline, see our recent paper on:
-[Mechanistic Design and Scaling of Hybrid Architectures](https://arxiv.org/abs/2403.17844)
-
-
+| Repository | Used for |
+|------------|----------|
+| **[mad-lab](https://github.com/IgorDn8/mad-lab)** (this repo) | Synthetic tasks (MAD suite + the new group state-tracking task), BD-LRU / H-LRU layers and scan kernels, iso-parameter / iso-state model configs, speed benchmarks |
+| **[plainLM](https://github.com/IgorDn8/plainLM)** | Language-model pretraining and downstream evaluation of BD-LRU, H-LRU and the baselines at scale |
 
 ## Contents
-- [Quickstart](#quickstart)
-    - [Setup](#setup)
-    - [Training](#training)
-    - [Benchmarking](#benchmarking)
-        - [Speed benchmarking (fork addition)](#speed-benchmarking-fork-addition)
-    - [Length OOD evaluation (fork addition)](#length-ood-evaluation-fork-addition)
-- [Repository overview](#repository-overview)
-- [The MAD synthetic task suite](#the-mad-synthetic-tasks)
-- [The MAD protocol](#the-mad-protocol)
-- [Provided architecture primitives](#provided-architecture-primitives)
-- [How to contribute](#how-to-contribute)
-    - [Architectures](#architecture-primitives)
-    - [Synthetic Tasks](#synthetic-tasks)
-- [Example Uses](#example-uses)
+- [What this repository adds](#what-this-repository-adds)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Synthetic tasks](#synthetic-tasks)
+    - [Group state-tracking tasks (new)](#group-state-tracking-tasks-new)
+    - [Generating datasets](#generating-datasets)
+    - [Original MAD tasks](#original-mad-tasks)
+- [Models](#models)
+    - [Scan implementations for BD-LRU / H-LRU](#scan-implementations-for-bd-lru--h-lru)
+- [Layer configs and naming convention](#layer-configs-and-naming-convention)
+- [Speed benchmarking](#speed-benchmarking)
+- [Tests](#tests)
+- [Repository structure](#repository-structure)
+- [Citation](#citation)
+- [Acknowledgements and license](#acknowledgements-and-license)
 
+## What this repository adds
 
-## Quickstart
-### Setup
-We use [uv](https://docs.astral.sh/uv/) to manage the Python environment and dependencies. If you don't have `uv` yet, install it with:
+Relative to upstream MAD-Lab, this fork adds:
+
+- **Models:** BD-LRU (`bdlru-sel-*`), H-LRU (`hlru-sel-*`), PDSSM (`pdssm-*`), an LSTM baseline (`lstm-*`), Mamba2 (`mamba2-fla-*`), DeltaNet (`dnet-*`) and DeltaProduct (`dproduct-*`). See [Models](#models).
+- **A synthetic state-tracking task** based on the word problem on finite groups: `group-S` (symmetric group), `group-Z` (cyclic group) and `group-A` (alternating group). See [Group state-tracking tasks](#group-state-tracking-tasks-new).
+- **Several scan implementations** for the linear-recurrent layers, from a sequential reference loop to hand-written Triton kernels, selectable at run time. See [Scan implementations](#scan-implementations-for-bd-lru--h-lru).
+- **Iso-parameter and iso-state model tiers**, generated from one script, so that families can be compared at a matched parameter budget or a matched recurrent state size. See [Layer configs and naming convention](#layer-configs-and-naming-convention).
+- **A speed-benchmarking harness** for throughput, latency and memory across sequence length, block size, batch size and hidden size. See [Speed benchmarking](#speed-benchmarking).
+- A `uv`-based environment and vendored finite-group utilities for the group tasks.
+
+## Installation
+
+The project is managed with [uv](https://docs.astral.sh/uv/). Install it if needed:
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Then create the environment and install the base dependencies (this reads `pyproject.toml` and creates a `.venv`):
+Create the environment from the lock file (this installs PyTorch, Triton and everything needed for BD-LRU, H-LRU, PDSSM, LSTM and the group tasks):
 ```bash
 uv sync
 ```
 
-The CUDA-only kernels ([FlashAttention](https://github.com/Dao-AILab/flash-attention), `causal-conv1d`, `mamba-ssm`) are kept in an optional `cuda` extra because they build against your local CUDA toolkit and require a GPU. To install them as well:
+Optional extras:
+
+| Extra | Command | Enables |
+|-------|---------|---------|
+| `fla` | `uv sync --extra fla` | Mamba2, DeltaNet and DeltaProduct baselines via [flash-linear-attention](https://github.com/fla-org/flash-linear-attention) (prebuilt wheels, no CUDA build) |
+| `cuda` | `uv sync --extra cuda` | The original MAD-Lab primitives that need compiled CUDA kernels (FlashAttention, `causal-conv1d`, `mamba-ssm`). These build against your local CUDA toolkit. |
+
+Extras can be combined, e.g. `uv sync --extra fla --extra cuda`. Run every command through `uv run`, e.g. `uv run python -m train ...`.
+
+A CUDA GPU is required for training. Layers whose optional dependencies are missing are skipped with a warning at import time, so the base install is enough for everything in the paper except the `fla`-backed baselines.
+
+#### Notes on the `fla` baselines
+- **Precision:** DeltaProduct requires bf16 and DeltaNet is run in bf16 as well. Use `--precision bf16` for `dnet-*`, `dproduct-*` and `mamba2-fla-*` layers. BD-LRU, H-LRU, PDSSM and LSTM are run with `--precision 32`.
+- **Hopper GPUs (H100/H200) with Triton ≥ 3.4:** `fla`'s gated chunk backward is only numerically correct through [`tilelang`](https://github.com/tile-ai/tilelang) (see [fla#640](https://github.com/fla-org/flash-linear-attention/issues/640)), which is why `tilelang` is part of the `fla` extra.
+- **Mamba2** is backed by `fla.layers.Mamba2` (Triton) rather than the `mamba_ssm` CUDA package. Mamba-2's core SSD scan is a Triton kernel in `mamba_ssm` too, so nothing is lost on the scan itself, and this avoids building CUDA extensions.
+
+#### Validated environment
+The layers in this fork were validated with Python 3.12, PyTorch 2.13 (CUDA 13), Triton 3.7, flash-linear-attention 0.5.x and tilelang 0.1.x on NVIDIA H100 GPUs. The exact versions `uv sync` installs are pinned in [uv.lock](uv.lock). The Triton scans require Triton ≥ 3.0 and a PyTorch with `torch.compile` and `associative_scan` support.
+
+## Quick start
+
+Training runs are launched through [train.py](train.py). A model is specified as a list of layer names (sequence mixers alternating with channel mixers); layer names are keys of the registry in [mad/registry.py](mad/registry.py) and correspond to files in [configs/layers/](configs/layers/).
+
+Train a two-block BD-LRU model (block size 4, ~1M mixer parameters) on the symmetric-group task S5:
 ```bash
-uv sync --extra cuda
-```
-To train models on MAD, you will require access to cuda-capable hardware as many of the architecture components provided in this repository are specifically designed to run on cuda GPUs (such as [FlashAttention](https://github.com/Dao-AILab/flash-attention)). Note that most entrypoints (including `train.py` and the data-generation scripts) import the layer registry, so they require the `cuda` extra to be installed.
-
-#### DeltaNet / DeltaProduct baselines (`fla`)
-The `dnet-*` (DeltaNet) and `dproduct-*` (DeltaProduct) layers are backed by [flash-linear-attention](https://github.com/fla-org/flash-linear-attention) (`fla`). Install the optional `fla` extra:
-```bash
-uv pip install "flash-linear-attention>=0.5.1" "tilelang>=0.1.12"
-```
-These are pure-python / prebuilt wheels and do **not** change your installed `torch`/`triton`. Two important caveats:
-- **Precision:** DeltaProduct requires **bf16** (`float32` is unsupported); DeltaNet also runs in bf16 in practice. Run these layers with `--precision bf16`.
-- **Hopper GPUs (H100/H200) + Triton ≥ 3.4:** `fla`'s gated chunk backward is only numerically correct via [`tilelang`](https://github.com/tile-ai/tilelang) (see [fla#640](https://github.com/fla-org/flash-linear-attention/issues/640)); without it, `fla` raises at runtime. `tilelang` is therefore part of the `fla` extra above.
-
-#### Mamba2 baseline (why `fla`/Triton, not `mamba_ssm` CUDA)
-The `mamba2-fla-d128` layer is backed by `fla.layers.Mamba2` (Triton), installed with the same `fla` extra. We deliberately do **not** depend on the official `mamba_ssm` package, for two reasons:
-- **There is no CUDA scan kernel to gain.** Mamba-2's core is the SSD (state-space-duality) chunked scan, which is written in **Triton** in the official `mamba_ssm` repo too — the hand-written CUDA `selective_scan` kernel is Mamba-**1** only. So `mamba_ssm` would not give us a faster scan than the Triton path; it would only add a fused `causal_conv1d` CUDA kernel and a fused gated-RMSNorm. Since the SSD scan dominates runtime (~80–90% at the sequence lengths we benchmark, and both paths run it in Triton), the expected throughput gap is roughly **~10% at long `T`, up to ~30% at short `T`**, concentrated in the depthwise conv rather than the scan.
-- **`mamba_ssm` / `causal_conv1d` do not install cleanly here.** They must build CUDA extensions against the local toolkit; on this stack (custom `torch 2.13.0+cu130`, CUDA 13.0) the build does not succeed, and resolving them via `uv` would downgrade `tilelang`/`protobuf` and break the DeltaNet/DeltaProduct baselines. The `fla`/Triton path avoids all of this and is a faithful, competitive stand-in for the Mamba-2 baseline.
-
-#### Compatibility (tested versions)
-The layers in this fork (BD-LRU / H-LRU / PDSSM Triton scans, and the `fla` DeltaNet/DeltaProduct baselines) were validated on the following stack:
-
-| Component | Tested version |
-|-----------|----------------|
-| Python | ≥ 3.11 |
-| PyTorch | 2.13.0 (CUDA 13.0 build, `+cu130`) |
-| Triton | 3.7.1 |
-| GPU / driver | NVIDIA H100 80GB, driver 580.x |
-| flash-linear-attention (`fla`) | 0.5.1 |
-| tilelang | 0.1.12 |
-| transformers | 5.14.1 (pulled in by `fla`) |
-| einops | 0.8.2 |
-| numpy | 2.5.1 |
-
-Notes:
-- The custom-recurrence Triton scans require **Triton ≥ 3.0** and a modern PyTorch (`torch.compile` / `associative_scan` support); they were developed against PyTorch 2.13 + Triton 3.7.
-- **Do not** run `uv sync`/`uv sync --extra ...` on a machine that uses a **custom local torch build** (such as a `+cuXXX` wheel not on PyPI): re-resolution can replace your torch. On such machines, add the `fla`/`cuda` packages with `uv pip install <pkg>` (which leaves the existing torch/triton in place), as shown above. `uv sync --extra fla` is only recommended when resolving the whole project fresh from PyPI.
-
-Run any command inside the environment with `uv run`, e.g.:
-```bash
-uv run python -m train --task group-S --layers bdlru-sel-wd1-d128-h32 swiglu bdlru-sel-wd1-d128-h32 swiglu
+uv run python -m train --task group-S --vocab-size 5 --seq-len 16 \
+  --layers bdlru-sel-wd4-d128-iso1m swiglu bdlru-sel-wd4-d128-iso1m swiglu \
+  --precision 32 --log-base-path logs
 ```
 
-> **Group tasks (`group-S` / `group-Z` / `group-A`)** rely on the finite-group utilities from [alreich/abstract_algebra](https://github.com/alreich/abstract_algebra) (MIT). Since that project isn't published on PyPI and isn't packaged as an importable `abstract_algebra` module, the required modules are vendored under [`abstract_algebra/`](abstract_algebra/) and their only extra runtime dependency (`sympy`) is included in the base install. No additional setup is needed.
-
-
-### Training
-The [train.py](train.py) script provides an entrypoint for training models on individual MAD synthetic tasks.
-
-#### Using the command-line:
-To train models built from architecture primitives provided in this repository, you can run the [train.py](train.py) script with the command line:
+The same with H-LRU, PDSSM, LSTM, or a `fla` baseline:
 ```bash
-python -m train --task in-context-recall --layers mh-attention swiglu mh-attention swiglu
-```
-This will train a 4-layer model, composed of multi-head attention, SwiGLU, multi-head attention, SwiGLU in the [in-context recall task](#the-mad-synthetic-tasks). By default, each layer is configured according to our default layer configurations in [configs/layers/](configs/layers/)). For an overview of all provided command-line arguments, see the `get_args()` function in [train.py](train.py).
+uv run python -m train --task group-S --vocab-size 5 --seq-len 16 --precision 32 \
+  --layers hlru-sel-wd4-d128-iso1m swiglu hlru-sel-wd4-d128-iso1m swiglu
 
-#### Using the code:
-If you want to train architectures using components not provide in this repository, you can do so with the `train(...)` function provided in the [train.py](train.py) script:
+uv run python -m train --task group-S --vocab-size 5 --seq-len 16 --precision 32 \
+  --layers pdssm-d128-iso1m swiglu pdssm-d128-iso1m swiglu
+
+uv run python -m train --task group-S --vocab-size 5 --seq-len 16 --precision 32 \
+  --layers lstm-d128-iso1m swiglu lstm-d128-iso1m swiglu
+
+uv run python -m train --task group-S --vocab-size 5 --seq-len 16 --precision bf16 \
+  --layers dnet-d128-iso1m swiglu dnet-d128-iso1m swiglu        # needs --extra fla
+```
+
+Useful arguments (see `get_args()` in [train.py](train.py) for the full list):
+
+| Argument | Meaning |
+|----------|---------|
+| `--task` | Task name from the task registry (`group-S`, `in-context-recall`, …) |
+| `--vocab-size`, `--seq-len` | Task size. For group tasks `--vocab-size` is the group degree `n` (see below). |
+| `--num-train-examples`, `--num-test-examples` | Dataset sizes (defaults 12 800 / 1 280) |
+| `--layers` | Layer names, in order |
+| `--layer-overrides KEY=VALUE ...` | Override config entries of all layers that accept them, e.g. `implementation=triton_auto_v2_compile` or `window_dim=4` |
+| `--dim` | Model width; inferred automatically from the `-d<width>-` tag in layer names |
+| `--precision` | `32` for BD-LRU / H-LRU / PDSSM / LSTM, `bf16` for the `fla` baselines |
+| `--lr`, `--weight-decay`, `--epochs`, `--batch-size` | Optimisation settings |
+| `--seed` | Random seed (also selects the dataset, see [Generating datasets](#generating-datasets)) |
+| `--log-base-path` | Where run directories are written. Each run gets a `results.csv` with final train / test metrics. |
+
+Models can also be trained from Python with the `train(...)` function:
 ```python
 from train import train
 from mad.configs import MADConfig
 
-# create your PyTorch model:
-model = ... 
-
-# configure MAD:
-mad_config = MADConfig(task='in-context-recall')
-# for an overview of the MAD settings,
-# see MADConfig in mad/configs.py
-
-# train your model:
-results = train(
-    model=model,
-    mad_config=mad_config, 
-    log_path='./logs/{insert-your-model-name}',
-)
+model = ...  # any torch.nn.Module mapping (batch, seq_len) token ids to logits
+results = train(model=model, mad_config=MADConfig(task='group-S', vocab_size=5, seq_len=16),
+                log_path='./logs/my-model')
 ```
-This will train your model in the [in-context recall task](#the-mad-synthetic-tasks) and return a dataframe with an overview of the final training and evaluation performance of your model. 
 
+## Synthetic tasks
 
-### Length OOD evaluation (fork addition)
-Training always uses a single `seq_len` for both train and test. To study **length extrapolation**, evaluate a finished checkpoint on longer test sequences without retraining.
+### Group state-tracking tasks (new)
 
-[eval_ood.py](eval_ood.py) loads `checkpoints/best.ckpt` (else `last.ckpt`) from a completed run directory, rebuilds the model with `max_length` set to the eval length, generates/loads a longer test cache, and writes `ood_results.csv` beside the training `results.csv` (training artifacts are left untouched).
+The `group-S`, `group-Z` and `group-A` tasks are the word problem on a finite group, a standard probe of a model's ability to track state: every input token is an element of the group, and the target at position `t` is the product of all input elements up to `t` (the running prefix product). A model therefore has to maintain the current group element as its state and update it with every token.
 
-Default eval lengths are `128 512 1024`. Architecture is not stored in the checkpoint, so pass the same `--layers` (and any `--layer-overrides`) used at training time.
+| Task | Group | `--vocab-size n` means | Number of elements |
+|------|-------|------------------------|--------------------|
+| `group-S` | symmetric group S_n (permutations of n items) | degree `n` | `n!` (S5: 120) |
+| `group-A` | alternating group A_n (even permutations) | degree `n` | `n!/2` (A5: 60) |
+| `group-Z` | cyclic group Z_n | order `n` | `n` |
 
+`group-S` with `n ≥ 5` is non-solvable, which is the case that separates architectures in the paper. `group-Z` is abelian and serves as an easy control. The model's actual vocabulary is the number of group elements, which `train.py` computes from `--vocab-size` automatically. Targets are predicted at every position.
+
+The group arithmetic uses the finite-group utilities from [alreich/abstract_algebra](https://github.com/alreich/abstract_algebra) (MIT), vendored under [abstract_algebra/](abstract_algebra/) because the project is not on PyPI. The task implementation is in [mad/data/instances.py](mad/data/instances.py) (`generate_group_*_instance`, with the group built once and cached).
+
+### Generating datasets
+
+`train.py` derives a dataset directory from the task arguments and seed (via `mad.paths.make_dataset_path`, under `--data-path`, default `./data`), and generates the data on the first run if the directory does not exist. Datasets can also be generated ahead of time, which is faster for the group tasks and lets several training runs share one dataset.
+
+Group tasks (builds the group once per seed and draws train / test sequences without replacement, so the two splits are disjoint):
 ```bash
-# single finished run
-uv run python -m eval_ood \
-  --log-path logs_mem_iso1m/runs/bdlru-wd1/<run-dir> \
-  --layers bdlru-sel-wd1-d128-iso1m swiglu bdlru-sel-wd1-d128-iso1m swiglu
-
-# optional: only materialize longer test caches (safe before parallel evals)
-uv run python -m eval_ood --log-path ... --layers ... --prime-only
+uv run python -m scripts.generate_group_data \
+  --task group-S --vocab-size 5 --seq-len 16 \
+  --num-train-examples 100000 --num-test-examples 1280 \
+  --seeds 12345 42 43
 ```
 
-For a full sweep laid out as `<sweep>/runs/<name>/<run>/`:
-
+Original MAD tasks (a fixed set of task / size combinations is built in; use the flags to generate a single custom dataset instead):
 ```bash
-# primes caches once per seed, then evaluates every finished run
-uv run python -m scripts.run_ood_sweep --sweep-dir logs_mem_iso1m
+uv run python -m scripts.generate_synth_data --seeds 42 43 12345
 
-# plot mean±std accuracy vs length (+ heatmap)
-uv run python -m scripts.plot_ood \
-  --sweep-dir logs_mem_iso1m --name mem-iso1m-ood --vocab-size 4096
+uv run python -m scripts.generate_synth_data \
+  --task in-context-recall --vocab-size 16 --seq-len 128 \
+  --num-train-examples 20000 --num-test-examples 1280 --seeds 42
 ```
 
-Notes:
-- Prefer evaluating only runs that already have `results.csv` (the default). Use `--allow-incomplete` only if you intentionally want mid-training checkpoints.
-- Longer test sets land under `./data/.../sl-{L}/test/` and are reused across models that share the same task settings/seed.
-- Models with hard `max_length` buffers (e.g. AutoEncoder / compression, Hyena filters, some RWKV kernels) need `max_length >= eval_seq_len` at init; most recurrent layers in this fork are length-agnostic.
+Datasets are stored as `inputs.npy` / `targets.npy` under `<data-path>/<task-dir>/{train,test}/`. A subsequent `train.py` call with the same task arguments and seed picks the dataset up automatically.
 
+### Original MAD tasks
 
-### Benchmarking
-Beyond training models in individual tasks, this repository provides a means to easily benchmark architectures across the entire [MAD protocol](#the-mad-protocol) with the [benchmark.py](benchmark.py) script.
+The six MAD tasks are kept unchanged from upstream and are described in the [MAD paper](https://arxiv.org/abs/2403.17844). Briefly:
 
-#### Downloading the data:
-To benchmark an architecture, you will first need to download our benchmark data, which is hosted at: [https://zenodo.org/records/10843663](https://zenodo.org/records/10843663).
-Please download the data and place it in this directory under the following path: `./benchmark/data` (as shown in our [repository overview](#repository-overview)).
+- `in-context-recall`: retrieve the values of keys that appeared earlier in the sequence (multi-query associative recall).
+- `fuzzy-in-context-recall`: in-context recall with keys and values made of a variable number of adjacent tokens.
+- `noisy-in-context-recall`: in-context recall with noise tokens from a separate vocabulary interleaved between the pairs.
+- `selective-copying`: copy a set of tokens, in order, to a later position while ignoring randomly inserted noise tokens.
+- `compression`: compress a token sequence into one aggregation token from which an MLP has to recover the sequence.
+- `memorization`: learn a fixed key-value mapping from the training data.
 
-#### Using the command-line:
-To benchmark an architecture composed of the architecture primitives provided in this repository, you can run:
+The baseline settings and difficulty changes of the upstream MAD protocol are kept in [configs/tasks/](configs/tasks/) for reference; the protocol runner itself is not part of this repository.
+
+## Models
+
+All models used in the paper's synthetic experiments are sequence-mixing layers registered in [mad/registry.py](mad/registry.py). Channel mixers (`swiglu`, `mlp`) come from upstream.
+
+| Family | Layer name pattern | Implementation | Size knobs | Precision | Extra |
+|--------|--------------------|----------------|------------|-----------|-------|
+| **BD-LRU** (block-diagonal LRU, selective) | `bdlru-sel-wd{m}-d{d}-...` | [bdlru_sel.py](mad/model/layers/bdlru_sel.py) | `hidden_dim` (number of blocks `N`), `window_dim` (block size `m`) | `32` | — |
+| **H-LRU** (higher-order LRU, selective) | `hlru-sel-wd{m}-d{d}-...` | [hlru_sel.py](mad/model/layers/hlru_sel.py) | `hidden_dim`, `window_dim` (recurrence order `m`) | `32` | — |
+| PDSSM | `pdssm-d{d}-...` | [pdssm.py](mad/model/layers/pdssm.py) | `hidden_dim`, `dictionary_size` | `32` (complex-valued) | — |
+| LSTM | `lstm-d{d}-...` | [lstm.py](mad/model/layers/lstm.py) | `hidden_dim` | `32` | — |
+| Mamba2 | `mamba2-fla-d{d}-...` | [mamba2_fla.py](mad/model/layers/mamba2_fla.py) | `expand`, `state_size`, `head_dim` | `bf16` | `fla` |
+| DeltaNet | `dnet-d{d}-...` | [deltanet.py](mad/model/layers/deltanet.py) | `num_heads`, `head_dim` | `bf16` | `fla` |
+| DeltaProduct | `dproduct-hh{r}-d{d}-...` | [deltaproduct.py](mad/model/layers/deltaproduct.py) | `num_heads`, `head_dim`, `rank` (number of Householder reflections `r`) | `bf16` | `fla` |
+
+**BD-LRU and H-LRU.** Both layers keep a recurrent state of `N` blocks of size `m` (state size `N·m`) and compute the transition of each block from the input through a selective gate. In BD-LRU each block is a dense `m × m` transition; in H-LRU each block is the companion matrix of an order-`m` recurrence. `m = 1` recovers a diagonal (scalar-gated) linear recurrence. Non-selective variants are in [bdlru_nonsel.py](mad/model/layers/bdlru_nonsel.py) and [hlru_nonsel.py](mad/model/layers/hlru_nonsel.py).
+
+**Baselines.** DeltaNet and DeltaProduct are the gated variants with negative eigenvalues allowed (`gated: true`, `negative: true` in their configs). The number of Householder reflections in DeltaProduct plays the role that the block size plays for BD-LRU / H-LRU, so both are swept as a first-class axis. Mamba2 uses the Triton SSD kernels from `fla`.
+
+The upstream MAD-Lab primitives (attention, Hyena, Mamba-1, linear and gated linear attention, RWKV-5/6) remain available and are listed in [mad/registry.py](mad/registry.py); most of them need the `cuda` extra.
+
+### Scan implementations for BD-LRU / H-LRU
+
+The recurrence of BD-LRU / H-LRU can be evaluated by several interchangeable implementations, selected with `--layer-overrides implementation=<name>` (the default in the config files is `orig`):
+
+| `implementation` | Description |
+|------------------|-------------|
+| `orig` | Sequential PyTorch loop over time. Reference implementation; slowest at long sequence length. |
+| `affine_scan_torch_impl` | `torch.associative_scan` over the affine recurrence ([affine_scan.py](mad/model/layers/ops/scans/affine_scan.py)). |
+| `hopscan_custom`, `custom_hopscan_autotune` | Eager parallel scan with a hand-written autograd function ([hopscan.py](mad/model/layers/ops/scans/hopscan.py)). |
+| `triton_sequential`, `triton_persistent`, `triton_parallel_blelloch`, `triton_chunked` | Fixed Triton kernels ([triton_scans.py](mad/model/layers/ops/scans/triton_scans.py)). |
+| `triton_auto`, `triton_auto_v2`, `triton_auto_v2_compile` | Occupancy-aware dispatch between the Triton kernels ([triton_auto_scan.py](mad/model/layers/ops/scans/triton_auto_scan.py)); `v2` adds a fused backward ([triton_fused_bwd.py](mad/model/layers/ops/scans/triton_fused_bwd.py)) and `_compile` hands the surrounding gate pipeline to `torch.compile`. |
+| `triton_fused_gates` | Gating fused into the scan kernel so the transition tensor is never materialised ([triton_fused_gate_scan.py](mad/model/layers/ops/scans/triton_fused_gate_scan.py)). Currently `m = 1` only; wider blocks fall back to `triton_auto_v2_compile`. |
+
+All implementations compute the same function; the fastest choices are `triton_fused_gates` at `m = 1` and `triton_auto_v2_compile` otherwise. The parallel implementations reassociate the recurrence, so they should be run at `--precision 32`. Pass/fail numerical tests are in [tests/test_scans.py](tests/test_scans.py); a quantitative forward / backward error table against a float64 reference is produced by
 ```bash
-python -m benchmark --layers hyena swiglu hyena swiglu
+uv run python -m scripts.verify_scans --dtypes float32 bfloat16 --out results/verify/errors.csv
 ```
-This will run a simple 4-layer model, composed of Hyena, SwiGLU, Hyena, and SwiGLU (configured according to our default layer configurations in [configs/layers/](configs/layers/)), through the MAD protocol. For an overview of all provided command-line arguments, see the `get_args()` function in [benchmark.py](benchmark.py).
 
-#### Using the code:
-If you want to benchmark new architectures, using components not provided in this repository, you can do so with the `benchmark(...)` function of the [benchmark.py](benchmark.py) script.
+## Layer configs and naming convention
 
-As several task variables are varied throughout the MAD benchmark, such as input sequence length and vocabulary size, you will first need to set up a function that creates the model you want to benchmark based on these task settings. This is an example of such a function:
-```python
-from torch import nn
-from mad.model.model import LanguageModel, AutoEncoder
-from mad.model.layers import hyena, swiglu
-
-def make_model_fn(
-    task: str,
-    vocab_size: int,
-    max_length: int,
-) -> nn.Module:
-
-    # a list of the layer modules composing your architecture:
-    layers = [hyena, swiglu, hyena, swiglu]
-    # these need to be torch.nn.Module instances!
-    
-    # setup a config for each of your layer types:
-    hyena_config = {'dim': 128, 'max_length': max_length}
-    swiglu_config = {'dim': 128, 'max_length': max_length}
-    # (128 is the default model width of the MAD protocol)
-    # and concatenate them into a list, with one entry for each layer:
-    layer_configs = [hyena_config, swiglu_config, hyena_config, swiglu_config]
-    
-    # select the correct model backbone for your layers:
-    backbone = LanguageModel if task not in {'compression'} else AutoEncoder
-    # we recommend that you use these 2 backbones to make your results
-    # comparable to the results provided in our paper
-    
-    return backbone(
-        vocab_size=vocab_size,
-        max_length=max_length,
-        layers=layers,
-        layer_cfgs=layer_configs
-    )
+Every registered layer name maps to a YAML file in [configs/layers/](configs/layers/) holding the keyword arguments of the layer class, for example:
+```yaml
+# configs/layers/bdlru-sel-wd4-d128-iso1m.yml
+dim: 128
+hidden_dim: 277
+window_dim: 4
+implementation: orig
 ```
-As you can see, the function should accept three keyword arguments:
-- `task` (str): the name for the MAD synthetic task. Here, we only use this variable to select an appropriate model backbone for your layers ... but who knows maybe there are other things in your architecture depending on it as well?
-- `vocab_size` (int): the size of the vocabulary used in the current task setting.
-- `max_length` (int): the maximum sequence length encountered in the current task setting.
 
-Once you have created a function that creates your model given these arguments, you can go ahead and run it through the MAD protocol:
-```python
-mad_scores = benchmark(make_model_fn=make_model_fn, model_id='{insert-your-model-name}')
+Names are built from the family prefix and dash-separated tags:
+
+| Tag | Meaning | Families |
+|-----|---------|----------|
+| `d{d}` | Model width `dim` (`train.py` sets `--dim` from it) | all |
+| `wd{m}` | Block size / recurrence order `window_dim` | BD-LRU, H-LRU |
+| `h{N}` | `hidden_dim` (number of blocks for BD-LRU / H-LRU, hidden size for LSTM / PDSSM) | BD-LRU, H-LRU, LSTM, PDSSM |
+| `hh{r}` | Number of Householder reflections (`rank`) | DeltaProduct |
+| `hd{k}`, `nh{h}` | `head_dim`, `num_heads` | DeltaNet, DeltaProduct |
+| `gn`, `gn{r}` | Gated + negative-eigenvalue variant (and rank `r`); hand-sized configs used for early comparisons | DeltaNet, DeltaProduct |
+| `s{S}`, `e{x}`, `c{k}` | `d_state`, `expand`, `d_conv` | `mamba-v2-*` (Mamba-1 sweep, needs `cuda` extra) |
+| `iso{B}` | **Iso-parameter tier**: size knob solved so the mixer has ~`B` parameters (`iso033m` ≈ 0.33M, `iso1m` ≈ 1M, `iso10m`, `iso33m`, `iso100m`) | all paper families |
+| `s{S}` | **Iso-state tier**: size knob set so the recurrent state holds `S` scalars | all paper families |
+
+Hand-sized configs such as `bdlru-sel-wd2-d128-h64` or `pdssm-d128-h128` are listed explicitly in the registry. The iso tiers are generated.
+
+#### Iso-parameter tiers
+For a fixed width `d` and a target sequence-mixer parameter budget, the size knob of each family is solved by binary search (verified by counting `parameters()`), so every family in a tier has the same mixer parameter count to within a few percent. Token embedding / unembedding parameters are identical for a fixed `(vocab, d)` and are not counted.
+
+| Tag | `d` | Mixer budget |
+|-----|-----|--------------|
+| `iso033m` | 128 | ~0.33M |
+| `iso1m` | 128 | ~1M |
+| `iso1m` | 1024 | ~1M (Mamba2 excluded, its minimum is ~3.4M) |
+| `iso10m` | 1024 | ~10M |
+| `iso33m` | 1024 | ~33M |
+| `iso100m` | 1024 | ~100M |
+
+| Family | Layer name | Solved knob |
+|--------|------------|-------------|
+| LSTM | `lstm-d{d}-{tag}` | `hidden_dim` |
+| BD-LRU, blocks `m ∈ {1,2,4,8,16}` | `bdlru-sel-wd{m}-d{d}-{tag}` | `hidden_dim` |
+| H-LRU, orders `m ∈ {1,2,4,8,16}` | `hlru-sel-wd{m}-d{d}-{tag}` | `hidden_dim` |
+| PDSSM | `pdssm-d{d}-{tag}` | `hidden_dim` |
+| Mamba2 | `mamba2-fla-d{d}-{tag}` | `expand` (`state_size=128`, `head_dim=64`) |
+| DeltaNet | `dnet-d{d}-{tag}` | `num_heads` (`head_dim=16`) |
+| DeltaProduct, `r ∈ {2,4,8}` | `dproduct-hh{r}-d{d}-{tag}` | `num_heads` (`head_dim=16`) |
+
+The generated configs and the index `configs/iso_param_sweeps.json` (which the registry reads to register them) are written by
+```bash
+uv run python -m scripts.gen_iso_param_sweeps          # solve every knob, write configs + index
+uv run python -m scripts.gen_iso_param_sweeps --check   # solve and print (params, %err) only
+uv run python -m scripts.param_count --layers bdlru-sel-wd4-d128-iso1m dnet-d128-iso1m   # count mixer params
 ```
-This will return a pandas series (`mad_scores`) with a MAD score for your model in each synthetic task of the MAD protocol.
 
-### Speed benchmarking (fork addition)
-In addition to the accuracy-oriented MAD protocol above, this fork adds a **throughput / latency / memory** harness for comparing sequence-mixer implementations. It measures forward+backward step time (median + IQR over repeats), tokens/s, samples/s and peak memory, sweeping over sequence length, block size, batch size or hidden size, with automatic OOM back-off, CSV output under `results/<name>/` and figures under `figures/<name>/`.
+Note that the budgets are matched but the precision is not: BD-LRU / H-LRU / PDSSM / LSTM run in fp32 and the `fla` baselines in bf16.
 
-Single sweep (one layer, one implementation):
+#### Iso-state tiers
+These match the recurrent state size (the number of scalars carried across time) instead of the parameter count. State size per family: `hidden_dim` for LSTM and PDSSM, `hidden_dim × window_dim` for BD-LRU / H-LRU, `expand · d · state_size` for Mamba2, and `num_heads × head_dim²` for DeltaNet / DeltaProduct (independent of the number of Householder reflections). Tiers are generated at `d = 128` for `S ∈ {512, 1024, 2048, 4096}` and at `d = 1024` for `S = 4096`, with BD-LRU / H-LRU at `m ∈ {1,2,4,8,16}` and DeltaProduct at `r ∈ {2,4,8}`; names end in `-s{S}`, e.g. `bdlru-sel-wd4-d128-s2048`. The spec lives in `mad.registry.iso_state_layer_specs()` and the files are written by
+```bash
+uv run python -m scripts.gen_iso_state_configs          # write the YAMLs
+uv run python -m scripts.gen_iso_state_configs --check   # print implied state sizes only
+```
+Parameter counts vary widely across families at a fixed state, and the smallest tiers make the matrix-state baselines degenerate (e.g. `state_size=2` for Mamba2 at `S=512`), so these rows should be read with care.
+
+## Speed benchmarking
+
+[speed_benchmark.py](speed_benchmark.py) measures forward+backward step time (median and IQR over repeats), tokens/s and peak memory for any registered layer, sweeping sequence length, block size, batch size or hidden size with automatic OOM back-off. Results go to `results/<name>/results.csv` and figures to `figures/<name>/`.
+
 ```bash
 uv run python speed_benchmark.py \
   --layers bdlru-sel-wd1-d128-h128 \
-  --layer-overrides implementation=triton_persistent \
+  --layer-overrides implementation=triton_fused_gates \
   --sweep-key seq_len --sweep-values 512 1024 2048 4096 8192 16384 \
-  --precision 32 --name bdlru-triton-persistent
+  --precision 32 --name bdlru-fused-gates
 ```
-Full multi-regime comparison (sequence length, block size, batch size, hidden size, inference, cross-model), resumable — reruns only fill in missing cells:
+
+[scripts/run_comparison_suite.py](scripts/run_comparison_suite.py) runs the full set of regimes from the paper (length scaling at several block sizes, block-size, batch-size and hidden-size grids, inference-only, cross-model, and the iso-parameter / iso-state tiers over a batch × length grid) for every scan implementation, and renders the comparison figures. It is resumable: re-running only fills in missing cells.
 ```bash
-uv run python -m scripts.run_comparison_suite --regime all
+uv run python -m scripts.run_comparison_suite --dry-run                 # list what would run
+uv run python -m scripts.run_comparison_suite --regime blocksize        # one regime
+uv run python -m scripts.run_comparison_suite --regime iso-d128-iso1m   # one iso tier
+uv run python -m scripts.run_comparison_suite                           # every regime
 ```
+The plotting helpers it uses ([plot_speed.py](scripts/plot_speed.py), [plot_compare.py](scripts/plot_compare.py), [plot_crossover.py](scripts/plot_crossover.py), [plot_grid.py](scripts/plot_grid.py), [plot_iso.py](scripts/plot_iso.py)) can also be run on their own on a results CSV; see the docstring at the top of each script.
 
-#### Models available for speed benchmarking
-Any registered layer works with `speed_benchmark.py`, including all original MAD primitives (`attention`, `hyena`, `mamba`, `gated-linear-attention`, `rwkv{5,6}`, …). The table below lists the models this fork focuses on. "Scan impls" are passed via `--layer-overrides implementation=<name>`.
+## Tests
 
-| Model (layer name) | Origin | Scan implementations | Precision | Extra deps |
-|--------------------|--------|----------------------|-----------|------------|
-| `bdlru-sel-wd{1,2,4,8,16,32,64}-d128-h*` | fork | `orig`, `affine_scan_torch_impl`, `hopscan_custom`, `custom_hopscan_autotune`, `triton_sequential`, `triton_persistent`, `triton_parallel_blelloch`, `triton_chunked`, `triton_auto`, `triton_auto_v2`, `triton_auto_v2_compile`, `triton_fused_gates` | `32` | — |
-| `hlru-sel-*` | fork | same set as BD-LRU (higher-order; still being refined) | `32` | — |
-| `pdssm-d128-h{64,128,256}` | fork | `sequential`, `associative_scan` | `32` (complex) | — |
-| `mamba2-fla-d128` | fork | `fla` Triton SSD (see [note](#mamba2-baseline-why-flatriton-not-mamba_ssm-cuda)) | `bf16` | `fla` |
-| `dnet-*` (DeltaNet) | fork | `fla` chunked | `bf16` | `fla` |
-| `dproduct-*` (DeltaProduct) | fork | `fla` chunked | `bf16` | `fla` |
-| `lstm-d128-h*` | fork | cuDNN LSTM baseline | `bf16`/`32` | — |
-| `mamba`, `attention`, `hyena`, `gated-linear-attention`, `rwkv{5,6}`, … | original | n/a | `bf16` | some need `cuda` extra |
-
-Notes:
-- **Block size** for BD-LRU/H-LRU is the `wd*` in the layer name, or set at run time with `--layer-overrides window_dim=<m>` on a `wd1` layer (used by the suite to sweep blocks without new configs).
-- `orig` is the reference implementation and is the slowest at long `T`; the suite caps it at moderate `T` for tractability.
-- **`triton_auto` is the recommended Triton variant.** `triton_sequential` / `triton_persistent` / `triton_parallel_blelloch` all run one program per row, so their only parallelism is `batch * hidden_dim` and they leave the GPU idle at small batch (as low as 18 GB/s of ~3350 available on an H100). `triton_auto` picks per shape between those and `triton_chunked` (see [`triton_auto_scan.py`](mad/model/layers/ops/scans/triton_auto_scan.py)). It matches the best fixed kernel everywhere measured and beats it by up to **3.3x on full layer fwd+bwd**, and by these factors on the scan kernel alone at `T=8192`:
-
-  | `m` | 1 | 2 | 4 | 8 | 16 |
-  |---|---|---|---|---|---|
-  | speedup vs. best fixed kernel | 8.8–11.6x | 8.9–21.0x | 3.2–11.3x | 1.0–1.5x | 1.0–2.9x |
-
-  Narrow blocks (`m ≤ 4`) get a log-depth `tl.associative_scan` over contiguous time slabs ([`triton_slab_scan.py`](mad/model/layers/ops/scans/triton_slab_scan.py)); `m=2` reaches 2455 GB/s (73% of peak) where the fixed kernels manage 277. `m=8` is the documented cutoff for that technique — it spills registers and falls back.
-- Precision: the `m ≤ 4` path is exact to ~2e-7 vs. the `orig` reference. For wider blocks `triton_chunked` reassociates the recurrence into fp32 matrix products, like `triton_parallel_blelloch`, so both carry the same looser tolerance (see `tests/test_scans.py`); this only affects `m ≥ 8` at low `batch * hidden_dim`, where `triton_auto` selects the chunked path.
-- Correctness/precision of the scan implementations (fwd + bwd error vs. a high-precision reference, in fp32 and bf16) is checked separately by [`scripts/verify_scans.py`](scripts/verify_scans.py), not by the speed harness.
-- **`triton_auto_v2_compile` supersedes `triton_auto`** and is the fastest variant that takes `A` as a tensor. Two independent problems were fixed after profiling the full layer step, where the scan kernel turned out to be only ~4% of CUDA time:
-  1. *The backward, not the forward, dominated.* The original backward expressed the reverse adjoint as a forward scan on flipped time, which forced it to materialise a transposed+flipped copy of `A` (plus flips/shifts around it) — 82% of the backward at `m=1`, 61% at `m=16`. [`triton_fused_bwd.py`](mad/model/layers/ops/scans/triton_fused_bwd.py) instead walks the adjoint directly against the original `A` (the transpose is a stride swap, the reversal an index mapping) and emits both gradients in one pass. Narrow blocks get reverse *slab* kernels, so they keep the log-depth `tl.associative_scan` the baseline was getting from its flipped copy — these need shorter slabs and narrower programs than the forward, since emitting `grad_A` costs `m²` extra stores per lane (using the forward's parameters instead costs 1.3x at `m=2` and 2.5x at `m=4`). Speedup on the backward alone: **3.9x** (`m=1`), **4.4x** (`m=2`), **2.5x** (`m=4`), **1.6x** (`m=16`). `m=8` keeps the baseline, whose flipped scan dispatches to the persistent kernel; batching the reverse loads the way that kernel does was tried and is worse still (0.90x → 0.72x), so the choice is automatic per width.
-  2. *The gate pipeline around the scan was un-fused.* ~70% of the step was eager elementwise launches — softmax, gated input, and above all the `permute(...).reshape(...)` on the two largest tensors, each materialising a copy plus a backward mirror. `*_compile` hands that chain to inductor, leaving the scan an opaque op between the two compiled halves.
-
-  Combined, on BD-LRU/H-LRU at `B=4, T=16384`, bf16 (vs. `triton_auto`):
-
-  | | `m=1` | `m=2` | `m=4` | `m=8` | `m=16` |
-  |---|---|---|---|---|---|
-  | speedup, full layer fwd+bwd | 1.74x | 1.46x | 1.63x | 1.45x | 1.91x |
-  | peak memory saved | 66% | — | — | — | 74–78% |
-
-  Against `custom_hopscan_autotune`, which previously won at `m=1/8/16`: every width except `m=8` (1.18x behind) now wins outright. The memory saving matters as much as the speed — it pushes back the OOM frontier in the batch × sequence-length grids. `triton_auto` and `triton_auto_v2` are kept selectable for A/B; the pre-optimization kernels are tagged `triton-auto-baseline-v1`.
-- **`triton_fused_gates` computes the gating inside the scan kernel**, so `A` is never built at all. Everything above still hands the kernel an `A` tensor, which means the layer must first materialise `softmax(gates)` and then a permuted copy of it — the two largest tensors in the step, plus a `grad_A` mirror in the backward. [`triton_fused_gate_scan.py`](mad/model/layers/ops/scans/triton_fused_gate_scan.py) takes `gates` and `v` directly and applies the softmax in registers; because it also produces its output as `(B, T, N, m)`, the layer's final reshape becomes a free view rather than a third copy. The adjoint of the softmax collapses to `dL/dz[i,k] = s[i] · p[i,k] · ((k < m ? y_{t-1}[k] : v[i]) − y_t[i])`, since its `Σ p·dL/dp` term is exactly `s[i]·y_t[i]`, so the backward needs only the reverse adjoint `s`, the recomputed gates, and `y`.
-
-  Reading `gates` in its native layout puts consecutive *blocks* (not timesteps) in adjacent memory, so unlike the `A`-based kernels this one tiles over `n` and walks time, splitting time into chunks (local scan → carry relay → reseeded rescan) for parallelism. That choice turns out to be near-binary: chunking costs a second pass over the data whatever the chunk length, so either don't chunk or go straight to the shortest useful chunk (20.3 ms → 4.6 ms → 2.2 ms at chunk = ∞/2048/128, `B=4, T=16384`), and once the `n`-tiles saturate the GPU on their own (~5 programs/SM) chunking only costs up to 22%.
-
-  Currently `m=1` only — wider blocks need an `(m, m)` register tile for the transition (two in the backward) and fall back to `triton_auto_v2_compile`. At `m=1` it beats the best of every other implementation in all 17 measured cells of the batch × sequence-length grid, by **1.31–2.33x** on the full layer step (the margin grows with batch and sequence length), and it is exact to ~2e-7 rather than reassociating. H-LRU's transition is a companion matrix rather than a per-row softmax, so the name is accepted there but falls back.
-
-#### Iso-parameter benchmark sets (systematic, all families)
-For fair cross-architecture comparison, every family is normalized to the same **sequence-mixer parameter budget** at a fixed model width `d`. Token embed/unembed params are identical for a fixed `(vocab, d)`, so only the mixer differs — this is what we equalize. Every family's size knob is *solved* to hit the budget (via binary search over the knob, verified by direct `parameters()` count), so the whole set is generated from one script and new tiers/families are one edit away:
 ```bash
-uv run python -m scripts.gen_iso_param_sweeps          # solve every knob, write configs + index
-uv run python -m scripts.gen_iso_param_sweeps --check   # solve + print (params, %err) only
+uv run python -m tests.test_datasets   # dataset generation for every task
+uv run python -m tests.test_tasks      # short training runs per task
+uv run python -m tests.test_layers     # every registered layer builds and trains
+uv run python -m tests.test_scans      # all scan implementations agree with the reference
 ```
-This writes one YAML per config under `configs/layers/` and an index `configs/iso_param_sweeps.json` that `mad/registry.py` reads to auto-register them.
+`test_layers` and `test_scans` need a GPU.
 
-**Tiers** (tag → width & budget):
-
-| Tag | `d` | Budget | Notes |
-|-----|-----|--------|-------|
-| `iso033m` | 128 | ~0.33M | smallest |
-| `iso1m` | 128 | ~1.0M | ~3× larger, same width |
-| `iso1m` | 1024 | ~1.0M | wide, shallow state (Mamba2 excluded — floor ~3.4M) |
-| `iso10m` | 1024 | ~10M | Mamba2 fits (`expand≈3`, near-canonical) |
-| `iso100m` | 1024 | ~100M | largest |
-
-**Naming** (uniform across all tiers; `{tag}` from the table, `{d}` = width):
-
-| Family | Layer name(s) | Solved knob |
-|--------|---------------|-------------|
-| LSTM | `lstm-d{d}-{tag}` | `hidden_dim` |
-| BD-LRU (blocks 1,2,4,8,16) | `bdlru-sel-wd{m}-d{d}-{tag}` | `hidden_dim` per block |
-| H-LRU (blocks 1,2,4,8,16) | `hlru-sel-wd{m}-d{d}-{tag}` | `hidden_dim` per block |
-| PDSSM | `pdssm-d{d}-{tag}` | `hidden_dim` |
-| Mamba2 | `mamba2-fla-d{d}-{tag}` | `expand` (state_size=128, head_dim=64) |
-| DeltaNet | `dnet-d{d}-{tag}` | `num_heads` (head_dim=16) |
-| **DeltaProduct (2/4/8 Householders)** | `dproduct-hh{2,4,8}-d{d}-{tag}` | `num_heads` per rank (head_dim=16) |
-
-So e.g. the `d=1024`/~100M tier is `lstm-d1024-iso100m`, `bdlru-sel-wd{1,2,4,8,16}-d1024-iso100m`, `hlru-sel-wd{1,2,4,8,16}-d1024-iso100m`, `pdssm-d1024-iso100m`, `mamba2-fla-d1024-iso100m`, `dnet-d1024-iso100m`, and `dproduct-hh{2,4,8}-d1024-iso100m` (17 configs). Measured budgets are within ±2% except a few tight corners (`bdlru-sel-wd16-d128-iso033m` −5%, `bdlru-sel-wd16-d1024-iso1m` −6.5%, DeltaProduct at `d=1024`/~1M within −7%) where integer knob steps are coarse relative to the budget.
-
-**DeltaProduct at 2/4/8 Householders in every tier.** The number of Householder reflections (`rank`) is DeltaProduct's analog of BD-LRU/H-LRU block size, so it is a first-class comparison axis: each tier ships three independent DeltaProduct models (`rank ∈ {2,4,8}`), each parameter-matched to the budget. Rank changes parameters (and compute) but *not* recurrent state, so at fixed budget the head width shrinks slightly as rank grows.
-
-Notes / caveats:
-- **Precision differs by family** (BD-LRU / H-LRU / PDSSM / LSTM run at `--precision 32`; Mamba2 / DeltaNet / DeltaProduct at `--precision bf16`), so iso-parameter does *not* imply iso-precision — keep this in mind when reading throughput.
-- **Non-linear knobs:** LSTM/PDSSM params grow ~quadratically in `hidden_dim` and BD-LRU/H-LRU ~quadratically in block size `m` (`Linear(d, N·m·(m+1))` gate), so the solved sizes are far from a naive linear scaling of the budget.
-- **Mamba2 at `d=128`** needs an atypically large `expand` (≈6 at ~0.33M, ≈20 at ~1.0M) because a canonical `expand=2` is only ~0.13M there; those rows are parameter-matched, not architecturally canonical. At `d=1024`/~1M Mamba2 is dropped entirely (its `expand=1` floor is ~3.4M).
-- The layer name and YAML both carry `d`, so run `d=1024` configs with `--dim 1024` (the speed harness and `param_count` honor it).
-
-### Iso-hidden-state benchmark sets
-Complementary to the iso-*parameter* sets above, these tiers match the **recurrent state size** — the total number of scalars carried across time (the model's fixed memory) — rather than the parameter count. This is the axis that governs recall/associative capacity.
-
-State size per family (the quantity we hold fixed):
-
-| Family | Recurrent state size | Knob to hit state `S` |
-|--------|----------------------|-----------------------|
-| LSTM | `hidden_dim` (cell state) | `hidden_dim = S` |
-| BD-LRU / H-LRU | `hidden_dim × window_dim` (block-diagonal, **N·m**) | `window_dim = m`, `hidden_dim = S/m` |
-| PDSSM | `hidden_dim` (complex diagonal modes) | `hidden_dim = S` |
-| Mamba2 | `d_inner × state_size = (expand·d)·state_size` | `expand=2, head_dim=64, state_size = S/(2d)` |
-| DeltaNet | `num_heads × head_dim²` (`expand_v=1`) | `head_dim=16, num_heads = S/256` |
-| DeltaProduct (2/4/8 Householders) | `num_heads × head_dim²` (`expand_v=1`; **independent of #householders/rank**) | `head_dim=16, num_heads = S/256`, `rank ∈ {2,4,8}` |
-
-Tiers generated: **d=128** at state ∈ {512, 1024, 2048, 4096}, and **d=1024** at state 4096 only. BD-LRU and H-LRU are emitted at block sizes `m ∈ {1, 2, 4, 8, 16}` (with `hidden_dim = S/m`) so block size can be compared at matched state. DeltaProduct is emitted at Householders `rank ∈ {2, 4, 8}` (`dproduct-hh{r}-d{d}-s{S}`); because rank does not change the state, all three sit at the same state `S` — the direct #householders-vs-block-size comparison against BD-LRU/H-LRU. Layer names follow `…-d{d}-s{state}`, e.g. `bdlru-sel-wd4-d128-s2048` (block 4, N=512), `dnet-d128-s1024`, `dproduct-hh4-d128-s2048`, `mamba2-fla-d1024-s4096`.
-
-These configs are generated from a single spec (`mad.registry.iso_state_layer_specs`) — regenerate/verify with:
-```bash
-uv run python -m scripts.gen_iso_state_configs          # write the 85 YAMLs
-uv run python -m scripts.gen_iso_state_configs --check   # print implied state sizes only
+## Repository structure
+```
+train.py                   -> train one model on one task (main entry point)
+speed_benchmark.py         -> throughput / latency / memory benchmark for registered layers
+configs/
+  layers/*.yml             -> one config per registered layer name
+  tasks/*.yml              -> MAD task baselines and difficulty changes
+  iso_param_sweeps.json    -> index of generated iso-parameter configs (read by the registry)
+mad/
+  registry.py              -> task and layer registries; iso-state spec
+  configs.py               -> MADConfig / MADModelConfig dataclasses
+  data/instances.py        -> instance generators for every task (incl. group-*)
+  data/dataset.py          -> dataset generation / caching
+  model/                   -> LanguageModel / AutoEncoder backbones and layers
+  model/layers/            -> bdlru_sel.py, hlru_sel.py, pdssm.py, lstm.py, deltanet.py,
+                              deltaproduct.py, mamba2_fla.py + upstream primitives
+  model/layers/ops/scans/  -> scan implementations (torch, hopscan, Triton kernels)
+  speed.py                 -> timing utilities for speed_benchmark.py
+  helpers.py, paths.py, metrics.py
+scripts/
+  generate_group_data.py   -> pre-generate group-task datasets
+  generate_synth_data.py   -> pre-generate MAD-task datasets
+  gen_iso_param_sweeps.py  -> solve and write the iso-parameter configs
+  gen_iso_state_configs.py -> write the iso-state configs
+  param_count.py           -> count sequence-mixer parameters
+  verify_scans.py          -> numerical error table for the scan implementations
+  run_comparison_suite.py  -> full speed-benchmark suite
+  plot_*.py                -> figures from speed-benchmark CSVs
+abstract_algebra/          -> vendored finite-group utilities (MIT) for the group tasks
+tests/                     -> dataset, task, layer and scan tests
+assets/                    -> poster and images
 ```
 
-Important caveats:
-- **Iso-state does *not* control parameters** — parameter counts vary by orders of magnitude across families at the same state. Because LSTM/PDSSM params grow ~quadratically in hidden size, they become very large at high state (e.g. `pdssm-d128-s4096` ≈ 205M params, `lstm-d128-s4096` ≈ 70M) and may OOM; the speed harness will back off batch size.
-- At **low** state, the matrix-state baselines become degenerate: `mamba2-*-s512` uses `state_size=2` and `dnet-*-s512` uses `num_heads=2` — parameter-faithful for state matching but not architecturally canonical. Interpret the small-state Mamba2/Delta rows with care.
-- Precision caveat unchanged (fp32 for LRU/PDSSM, bf16 for Mamba2/DeltaNet/DeltaProduct).
+## Citation
 
+If you use this code, please cite the paper and the original MAD-Lab:
 
-## Repository Overview
-```
-/benchmark
-┗ 📂 data
-┃    ┗ 📂 t-* -> one directory for each benchmark task setting
-┃    ┃    ┗ 📂 test
-┃    ┃    ┃    ┗ inputs.npy 
-┃    ┃    ┃    ┗ targets.npy 
-┃    ┃    ┗ 📂 train
-┃    ┃         ┗ inputs.npy 
-┃    ┃         ┗ targets.npy 
-┃    ┗ 📂 t-*
-┃    ┗ ...
+```bibtex
+@misc{dubinin2026statemixing,
+  title={Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks},
+  author={Dubinin, Igor and Orvieto, Antonio and Effenberger, Felix},
+  year={2026},
+  eprint={2602.12021},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  url={https://arxiv.org/abs/2602.12021},
+}
 
-/configs -> default layer and task settings
-┣ 📂 layers
-┃    ┗ *.yml
-┣ 📂 tasks
-┃    ┗ *.yml
-
-/mad
-┣ 📂 data
-┃   ┗ __init__.py
-┃   ┗ dataset.py -> creating datasets given a function generates instances of a task
-┃   ┗ instances.py -> generating instances of each task
-┣ 📂 model
-┃    ┣ 📂 layers
-┃    ┃    ┗ 📂 featurization -> everything used to featurize layers
-┃    ┃    ┗ 📂 ops
-┃    ┃    ┗ 📂 rwkv
-┃    ┃    ┗ __init__.py
-┃    ┃    ┗ attention_gated_linear.py 
-┃    ┃    ┗ attention_linear.py
-┃    ┃    ┗ attention.py
-┃    ┃    ┗ hyena.py
-┃    ┃    ┗ mamba.py
-┃    ┃    ┗ mlp.py
-┃    ┃
-┃    ┣ __init__.py
-┃    ┣ auto_encoder.py
-┃    ┣ language_model.py
-┃    ┗ pl_model_wrapper.py
-┃
-┣ __init__.py
-┣ analysis.py -> tools to analyze benchmark results
-┣ configs.py -> dataclasses we use to configure MAD
-┣ metrics.py -> metrics for training / evaluation
-┣ paths.py -> some tools to make and parse paths
-┗ registry.py -> registry for all layers and tasks of this repository
-
-/abstract_algebra -> vendored finite-group utilities (MIT) used by the group-* tasks
-
-benchmark.py -> benchmarking models on MAD
-train.py -> training a model on individual tasks
-eval_ood.py -> post-hoc length-OOD evaluation of finished checkpoints
-scripts/run_ood_sweep.py -> batch OOD eval over a sweep directory
-scripts/plot_ood.py -> plot OOD accuracy vs evaluation length
-.gitignore.py
-README.md
-pyproject.toml -> uv project definition (dependencies + optional cuda extra)
-requirements.txt -> legacy dependency list (kept in sync with pyproject.toml)
+@misc{poli2024mechanistic,
+  title={Mechanistic Design and Scaling of Hybrid Architectures},
+  author={Poli, Michael and Thomas, Armin W and Nguyen, Eric and Ponnusamy, Pragaash and Deiseroth, Bj{\"o}rn and Kersting, Kristian and Suzuki, Taiji and Hie, Brian and Ermon, Stefano and R{\'e}, Christopher and Zhang, Ce and Massaroli, Stefano},
+  year={2024},
+  eprint={2403.17844},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG},
+  url={https://arxiv.org/abs/2403.17844},
+}
 ```
 
+## Acknowledgements and license
 
-
-## The MAD synthetic tasks
-MAD spans six simple token manipulation tasks. We provide a brief overview of each task in the following. For more details, please see our paper.
-
-### `in-context-recall`
-<img src="./assets/recall.png" alt="recall" width="300"/>
-To answer a prompt well, language models must be able to understand and learn from new information presented in the prompt (so-called in-context learning). A wealth of empirical work has demonstrated that the associative recall task is well-suited to test the in-context learning skill. MAD uses a multi-query variant of this task: Given an input sequence of key-value pairs, models are tasked with retrieving all values from the input sequence associated with keys that were already shown in the input sequence. Note that while the mapping from keys to values is consistent within an input sequence, it is randomly shuffled between sequences.
-
-### `fuzzy-in-context-recall`
-<img src="./assets/fuzzy_recall.png" alt="fuzzy_recall" width="300"/>
-In language, semantic units are often spread out over multiple adjacent tokens (e.g., "blue sky" vs "gray sky"). To test how capable a model is of semantically grouping together adjacent tokens, MAD utilizes a variant of in-context recall, in which keys and values are composed of a variable number of adjacent tokens. Specifically, for each sequence, variable length keys and values are randomly drawn from the vocabulary and then assigned into pairs. Since the structure of key/value lengths in a sequence, as well as the mapping from keys to values, change between sequences, fuzzy recall can be treated as a more challenging variant of in-context recall.
-
-### `noisy-in-context-recall`
-<img src="./assets/noisy_recall.png" alt="noisy_recall" width="300"/>
-To answer a prompt well, language models must be able to ignore irrelevant information of the input. To test this skill, MAD uses another adaptation of in-context recall, in which irrelevant information, represented by tokens from a distinct vocabulary, is added in an arbitrary and variable pattern in between the key-value pairs.
-Note that this adds a memorization aspect to the task, as models need to learn during training to ignore tokens from the noise vocabulary.
-
-### `selective-copying`
-<img src="./assets/selective_copy.png" alt="selective_copy" width="300"/>
-In addition to ignoring irrelevant information of an input, language models must be able to selectively remember relevant information of an input. To test this skill, MAD uses a selective copying task, in which models are tasked with copying tokens from one position of an input sequence to a later position of the sequence, while ignoring irrelevant noise tokens that are randomly inserted into the sequence. Importantly, tokens are always copied in their order of occurrence. Models thereby need to not just remember the tokens that are to be copied but also their specific order of occurrence in the sequence.
-
-### `compression`
-<img src="./assets/compression.png" alt="compression" width="300"/>
-Recent findings in the mechanistic interpretability literature indicate that a key skill of language models is "token concatenation", where early attention layers assemble information that is spread across multiple tokens in an input onto another token so that the assembled information can then be decoded well by subsequent MLPs. To test the ability of a model to perform token concatenation, even without attention and MLP, MAD utilizes a compression task. In this task, models are trained to compress a random sequence of input tokens into a single aggregation token so that the original input sequence can be fully recovered from the aggregation token by a subsequent MLP.
-
-### `memorization`
-<img src="./assets/memorization.png" alt="memorization" width="300"/>
-In addition to manipulating and retrieving information from an input sequence, language modeling requires the memorization of factual knowledge. To test this skill, MAD utilizes a memorization task, in which models are tasked with learning a fixed key-value mapping (resembling facts in language) from the training data. Unlike recall, the mapping requires no in-context computation as the ground-truth mapping is constant across samples. 
-
-
-
-## The MAD Protocol
-MAD follows a two-step procedure, starting from the design of a new candidate architecture, followed by its systematic evaluation according to the following key principles: 
-
-1. For each synthetic task, a MAD score is obtained by averaging architecture performances across a range of task difficulty levels. To manipulate difficulty, MAD independently varies a set of relevant experimental variables: length of the input sequence, size of the vocabulary, and size of the training set. Some tasks have additional variables such as the ratio of noise tokens in the noisy recall and selective copying tasks. For an overview of the changes applied to each task, see the changes entry in each task config in [configs/tasks/](configs/tasks/).
-
-2. Fixed-state architectures need to be normalized to an iso-state and iso-parameter setting, including models featuring sparsely activated layers such as Mixture-of-Experts. For details on this, please see our paper!
-
-3. To ensure that model performance estimates are not dependent on a specific optimization setting, MAD sweeps each architecture in each task setting over a 3 x 2 grid of learning rate and weight decay values (learning rates: $0.0001, 0.0005, 0.001$, weight decays: $0., 0.1$). MAD scores are based on the best runs from this sweep.
-
-4. Model performances are always evaluated in an independent evaluation dataset, specific to each task setting.
-
-
-
-## Provided architecture primitives
-For an overview of all provided layer types, see the [mad/model/layers/](mad/model/layers/) directory as well as our layer registry in [mad/registry.py](mad/registry.py). For an overview of the default layer configurations, see their respective configurations in [configs/layers/](configs/layers/).
-
-### Channel-mixing:
-- `mlp`: Standard expanding multi-layer perceptron, [implementation](mad/model/layers/mlp.py)
-- `swiglu`: Swish-Gated-Linear Unit, [implementation](mad/model/layers/mlp.py)
-- `moe-mlp`: A Mixture-of-Experts MLP variant, [implementation](mad/model/layers/mlp.py)
-
-### Sequence-mixing:
-- `attention`: [paper](https://arxiv.org/abs/2307.08691), [implementation](mad/model/layers/attention.py)
-    - `sliding-attention`: implements a sliding-window variant of attention
-- `hyena`: [paper](https://arxiv.org/abs/2302.10866), [implementation](mad/model/layers/hyena.py)
-    - `hyena-experts`: as proposed in the MAD paper, [implementation](mad/model/layers/hyena.py)
-- `mamba`: [paper](https://arxiv.org/abs/2312.00752), [implementation](mad/model/layers/mamba.py)
-- `linear-attention`: [paper](https://arxiv.org/abs/2006.16236), [implementation](mad/model/layers/attention_linear.py)
-- `gated-linear-attention`: [paper](https://arxiv.org/abs/2312.06635), [implementation](mad/model/layers/attention_gated_linear.py)
-- `rwkv{5,6}`: [paper](https://arxiv.org/abs/2305.13048), [implementation](mad/model/layers/rwkv)
-
-Note that we also provide respective multi-head variants for layers supporting this type of state expansion, which you can call by simply adding `mh-` (for multi-head) to the layer's name, eg: `mh-hyena`. 
-
-This fork additionally provides (see [mad/registry.py](mad/registry.py) for all registered configs):
-- `bdlru-sel-*` / `hlru-sel-*`: block-diagonal / higher-order LRU variants (multiple scan implementations: `orig`, `affine_scan_torch_impl`, `hopscan_custom`, `custom_hopscan_autotune`, and Triton `triton_sequential` / `triton_persistent` / `triton_parallel_blelloch` / `triton_chunked` / `triton_auto` / `triton_auto_v2` / `triton_auto_v2_compile` / `triton_fused_gates`, selected via `--layer-overrides implementation=...`; `triton_fused_gates` is the fastest at `m=1` and `triton_auto_v2_compile` elsewhere, see [notes](#speed-benchmarking-fork-addition)). Run at `--precision 32`.
-- `pdssm-d128-h*`: Permutation-Dictionary SSM ([implementation](mad/model/layers/pdssm.py)) with `sequential` and `associative_scan` recurrences (`--layer-overrides implementation=...`). Complex-valued, so run at `--precision 32`.
-- `dnet-*` (DeltaNet) / `dproduct-*` (DeltaProduct): `fla`-backed baselines; require the `fla` extra and `--precision bf16` (see [Setup](#setup)).
-
-
-
-## How to contribute
-We are hoping that MAD will grow as an open source tool for easy and compute-efficient architecture prototyping. We therefore welcome contributions of new architecture primitives and synthetic tasks.
-
-### Architecture primitives:
-To contribute a new architecture primitive, please proceed as follows:
-0. Fork this repository.
-1. Add an implementation of your layer primitive to [mad/model/layers](mad/model/layers/); Ideally, your implementation is self-contained in one script. For featurizations and ops used by your layer, we also provide the [ops](mad/model/layers/ops/) and [featurization](mad/model/layers/featurization/) directories.
-2. Add a default configuration for your layer to [configs/layers](configs/layers/). Please make sure that your layer configuration is normalized to the iso-state and iso-parameter setting we use for MAD (see our paper for details on this).
-3. Add an import for your layer to [mad/model/layers/__init__.py](mad/model/layers/__init__.py) and create an entry for your layer in our layer registry in [mad/registry.py](mad/registry.py).
-4. Verify that your layer is fully compatible with our [train.py](train.py) and [benchmark.py](benchmark.py) scripts.
-5. Once you have completed these steps, create a [pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests), which we will then review.
-
-### Synthetic tasks:
-To contribute a new synthetic task, please proceed as follows:
-0. Fork this repository.
-1. Write a function that creates a single instance of the synthetic task you would like to add and add it to [mad/data/instances.py](mad/data/instances.py). This function needs to return two numpy arrays: inputs and targets. Take a look at our current implementations, as well as the MADConfig in [mad/configs.py](mad/configs.py), to get an overview of all relevant keyword arguments.
-2. Add a configuration for your task to [configs/tasks](configs/tasks/), making sure that it contains all relevant arguments for the baseline setting, as well as all relevant entries to manipulate task difficulty (indicated by "changes"). Use the existing task configurations as a guideline.
-3. Make sure to add an entry for your to the layer registry in [mad/registry.py](mad/registry.py).
-4. Verify that the models implemented in this repository can be trained on your task.
-5. Once you have completed these steps, create a [pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests), which we will then review.
-
-
-
-## Example Uses
-We collect scripts showing basic usecases for MAD in [scripts/](scripts/).
-
-### Architecture Improvement:
-[scripts/architecture_improvement.py](scripts/architecture_improvement.py) shows an example demonstrating how to compare the performance of multiple variants of a base architecture.
-
-
-## Thank you! :pray:
-All of this work would not be possible without the many amazing open source implementations that we are building on, such as [FlashAttention](https://github.com/Dao-AILab/flash-attention), [flash attention linear](https://github.com/sustcsonglin/flash-linear-attention), [rwkv](https://github.com/BlinkDL/RWKV-LM/tree/main), [mamba](https://github.com/state-spaces/mamba), and [hyena](https://github.com/HazyResearch/safari).
+This repository is released under the MIT license (see [LICENSE](LICENSE)). It builds on [MAD-Lab](https://github.com/athms/mad-lab) and on the open-source implementations it integrates: [flash-linear-attention](https://github.com/fla-org/flash-linear-attention), [FlashAttention](https://github.com/Dao-AILab/flash-attention), [Mamba](https://github.com/state-spaces/mamba), [Hyena](https://github.com/HazyResearch/safari) and [RWKV](https://github.com/BlinkDL/RWKV-LM). The group tasks use [abstract_algebra](https://github.com/alreich/abstract_algebra) by Alfred J. Reich (MIT, vendored under [abstract_algebra/](abstract_algebra/) with its license).

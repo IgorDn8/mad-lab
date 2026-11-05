@@ -1,8 +1,14 @@
 [project]
 name = "mad-lab"
 version = "0.1.0"
-description = "MAD-Lab: mechanistic architecture design with synthetic tasks (fork adding BD-LRU, H-LRU, mamba2, deltaProduct, deltaNet, and group state-tracking tasks)."
+description = "Synthetic-task experiments, scan kernels and speed benchmarks for 'Improved State Mixing in Higher-order and Block Diagonal Linear Recurrent Networks' (fork of MAD-Lab)."
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Igor Dubinin" },
+    { name = "Antonio Orvieto" },
+    { name = "Felix Effenberger" },
+]
 requires-python = ">=3.11"
 
 dependencies = [
@@ -12,6 +18,7 @@ dependencies = [
     "einops",
     "seaborn",
     "pandas",
+    "pyyaml",
     "torchmetrics",
     "pytorch_lightning",
     "opt_einsum",
@@ -22,9 +29,22 @@ dependencies = [
     "sympy",
 ]
 
+[project.urls]
+Repository = "https://github.com/IgorDn8/mad-lab"
+Paper = "https://arxiv.org/abs/2602.12021"
+"Companion repository (plainLM)" = "https://github.com/IgorDn8/plainLM"
+
 [project.optional-dependencies]
-# CUDA-only kernels. These build against your local CUDA toolkit and require a
-# GPU, so they are kept out of the base install. Install with:
+# Triton-based baselines (Mamba2, DeltaNet, DeltaProduct) via flash-linear-attention.
+# Pure-python / prebuilt wheels; does not change the installed torch/triton.
+#   uv sync --extra fla
+fla = [
+    "flash-linear-attention>=0.5.1",
+    "tilelang>=0.1.12",
+]
+# CUDA-only kernels used by the original MAD-Lab primitives (attention, Hyena,
+# Mamba-1). These build against your local CUDA toolkit and require a GPU, so
+# they are kept out of the base install:
 #   uv sync --extra cuda
 cuda = [
     "flash-attn",
@@ -36,6 +56,3 @@ cuda = [
 # flash-attn / mamba-ssm need torch present at build time and don't declare it as
 # a PEP 517 build dependency, so disable build isolation for them.
 no-build-isolation-package = ["flash-attn", "mamba-ssm", "causal-conv1d"]
-
-[tool.setuptools]
-packages = ["mad", "abstract_algebra"]

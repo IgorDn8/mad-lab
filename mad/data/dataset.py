@@ -42,7 +42,8 @@ def generate_or_load_dataset(
     """
     Generate or load a single MemoryDataset split.
 
-    Used by OOD eval to materialize a longer test set without touching train data.
+    Useful for materializing a test split with different settings (e.g. a longer
+    sequence length) without touching the training data.
     """
     kwargs = dict(instance_fn_kwargs)
     kwargs['is_training'] = is_training

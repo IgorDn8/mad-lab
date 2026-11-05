@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""When is a *parallel* scan preferential? (the crossover question, Q#6)
+"""When is a *parallel* scan preferential? (the crossover question)
 
 Given a benchmark that sweeps TWO axes (e.g. sequence length x block size, or
 sequence length x batch size) across all BD-LRU scan implementations, this

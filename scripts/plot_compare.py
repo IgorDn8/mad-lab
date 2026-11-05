@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Publication-quality scan-implementation comparisons for MAD speed benchmarks.
 
-This is the mad-lab analogue of nisys-bench's ``plot_persistent_vs_parallel`` /
-``plot_seq_vs_parallel``: instead of comparing framework backends it compares the
-scan *implementations* wired into the BD-LRU / H-LRU layers
+It compares the scan *implementations* wired into the BD-LRU / H-LRU layers
 (``affine_scan_torch_impl``, ``hopscan_custom``, ``triton_sequential``,
 ``triton_persistent``, ``triton_parallel_blelloch``, ...), as measured by
 ``speed_benchmark.py``.

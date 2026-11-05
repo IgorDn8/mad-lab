@@ -1,4 +1,4 @@
-"""Triton affine-scan primitives (adapted from nisys-bench).
+"""Triton affine-scan primitives.
 
 Solves the affine recurrence ``h_t = A_t @ h_{t-1} + b_t`` over a flattened
 batch layout ``A: (BB, T, D, D)``, ``b: (BB, T, D)`` -> ``y: (BB, T, D)``.
@@ -9,8 +9,7 @@ Scan strategies exposed:
 - ``persistent``      : one program per row, state resident in registers, time
                         loaded in sub-chunks (single launch, O(T) depth).
 - ``blelloch``        : work-efficient up-/down-sweep tree scan (O(T) work,
-                        O(log T) depth). Vendored verbatim from nisys-bench's
-                        ``triton_blelloch_scan.blelloch_affine_scan``.
+                        O(log T) depth).
 - ``chunked``         : occupancy-aware scan from ``triton_auto_scan``. The
                         three kernels above expose only ``BB`` parallelism, so
                         they idle the GPU at small batch; this one resolves
@@ -18,8 +17,7 @@ Scan strategies exposed:
                         D == 1 and adds a time-chunk grid axis otherwise.
 - ``auto``            : pick among the above from ``(BB, T, D)``.
 
-Unlike nisys-bench (which fuses the ``W_t = einsum(L, x_t)`` generator into the
-kernel), these operate on a *precomputed* transition tensor ``A`` — the form MAD
+These kernels operate on a *precomputed* transition tensor ``A`` — the form MAD
 layers already produce from their gates — exactly like the ``affine_scan_torch``
 option.
 
@@ -194,7 +192,7 @@ def persistent_affine_scan(A: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 # --------------------------------------------------------------------------- #
-# blelloch: work-efficient tree scan (vendored from nisys-bench).
+# blelloch: work-efficient tree scan.
 # --------------------------------------------------------------------------- #
 @triton.jit
 def _blelloch_combine_kernel(

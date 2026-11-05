@@ -172,35 +172,3 @@ class MADModelConfig(BaseConfig):
             embed_drop_rate=self.embed_drop_rate,
         )
         return model
-
-
-def make_benchmark_mad_configs(**kwargs):
-    """Returns a list containing all MADConfigs of the MAD benchmark."""
-
-    lrs = [1e-4, 5e-4, 1e-3]
-    wds = [0.0, 0.1]
-    mad_configs = []
-    for task in task_registry.keys():
-        task_cfg = load_yml(task_registry[task]['cfg'])
-        baseline = task_cfg['baseline']
-        baseline['task'] = task
-        for k,v in kwargs.items():
-            baseline[k] = v
-        changes = task_cfg['changes']
-
-        for lr in lrs:
-            for wd in wds:
-                # baseline task setting:
-                mad_config = MADConfig(lr=lr, weight_decay=wd)
-                mad_config.update_from_kwargs(baseline)
-                mad_configs.append(mad_config)
-                # changes to baseline setting, varying task difficulty:
-                for change_key in changes:
-                    change_cfg = dict(baseline)
-                    for change_value in changes[change_key]:
-                        change_cfg[change_key] = change_value
-                        mad_config = MADConfig(lr=lr, weight_decay=wd)
-                        mad_config.update_from_kwargs(change_cfg)
-                        mad_configs.append(mad_config)
-
-    return mad_configs
