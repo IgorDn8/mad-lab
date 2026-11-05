@@ -1,13 +1,21 @@
+# Noisy in-context recall (20% of the sequence are tokens from a separate noise
+# vocabulary of 16); reported in the paper's extended tables. The vocabulary size
+# includes the noise vocabulary (32 = 16 + 16), so the "larger vocabulary" variation is 48.
 baseline:
   vocab_size: 32
-  noise_vocab_size: 16
-  seq_len: 128
-  num_train_examples: 12800
+  seq_len: 64
+  num_train_examples: 20000
+  num_test_examples: 1280
   multi_query: True
+  k_motif_size: 1
+  v_motif_size: 1
   frac_noise: 0.2
+  noise_vocab_size: 16
+  num_tokens_to_copy: 16   # unused here; kept so dataset paths match (ntc-16)
 
+# Each entry of `changes` is applied on its own to the baseline (MAD protocol), giving
+# four datasets: baseline, larger vocabulary, longer sequences, fewer training examples.
 changes:
-  vocab_size: [48, 80, 144] # adding 16 for noise vocab!
-  seq_len: [256, 512, 1024]
-  num_train_examples: [6400, 3200, 1600, 800]
-  frac_noise: [0.4, 0.6, 0.8]
+  vocab_size: [48]
+  seq_len: [128]
+  num_train_examples: [10000]

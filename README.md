@@ -143,28 +143,40 @@ The `group-S`, `group-Z` and `group-A` tasks are the word problem on a finite gr
 
 The group arithmetic uses the finite-group utilities from [alreich/abstract_algebra](https://github.com/alreich/abstract_algebra) (MIT), vendored under [abstract_algebra/](abstract_algebra/) because the project is not on PyPI. The task implementation is in [mad/data/instances.py](mad/data/instances.py) (`generate_group_*_instance`, with the group built once and cached).
 
+### Dataset configurations of the paper
+
+The exact dataset settings used in the paper are stored in [configs/tasks/](configs/tasks/), one YAML file per task, as a `baseline` plus the variations applied to it (see [mad/task_configs.py](mad/task_configs.py) for the format):
+
+| Task | Datasets | Settings |
+|------|----------|----------|
+| `in-context-recall`, `selective-copying`, `compression` | 4 each | baseline vocabulary 16, sequence length 64, 20 000 training examples; variations: vocabulary 32, length 128, 10 000 examples |
+| `fuzzy-in-context-recall` | 4 | as above with 3-token key / value motifs |
+| `noisy-in-context-recall` | 4 | as above with 20% noise tokens from a noise vocabulary of 16 (vocabulary 32 = 16 + 16; the larger-vocabulary variation is 48) |
+| `memorization` | 3 | vocabulary 2048, 4096, 8192; 256 training sequences of length 32 |
+| `group-S` | 5 | sequence length 16; S3 with 10 000 and 250 examples, S4 with 50 000 and 3 000, S5 with 100 000 |
+
+Every dataset has 1 280 test examples. Training on all of them followed the MAD protocol: AdamW, batch size 128, 200 epochs, cosine schedule, no weight decay, learning rate from {1e-3, 5e-4, 1e-4}, and the best test accuracy over learning rates and seeds is reported. BD-LRU, H-LRU, PDSSM and LSTM were trained with `--precision 32`, the `fla` baselines with `--precision bf16`.
+
 ### Generating datasets
 
-`train.py` derives a dataset directory from the task arguments and seed (via `mad.paths.make_dataset_path`, under `--data-path`, default `./data`), and generates the data on the first run if the directory does not exist. Datasets can also be generated ahead of time, which is faster for the group tasks and lets several training runs share one dataset.
-
-Group tasks (builds the group once per seed and draws train / test sequences without replacement, so the two splits are disjoint):
+`train.py` derives a dataset directory from the task arguments and seed (via `mad.paths.make_dataset_path`, under `--data-path`, default `./data`), and generates the data on the first run if the directory does not exist. Datasets can also be generated ahead of time, which is faster for the group tasks and lets several training runs share one dataset. [scripts/generate_synth_data.py](scripts/generate_synth_data.py) reads the configuration files above:
 ```bash
-uv run python -m scripts.generate_group_data \
-  --task group-S --vocab-size 5 --seq-len 16 \
-  --num-train-examples 100000 --num-test-examples 1280 \
-  --seeds 12345 42 43
-```
+uv run python -m scripts.generate_synth_data --list                       # show the 30 dataset settings
+uv run python -m scripts.generate_synth_data --seeds 42 43 12345           # generate all of them (the paper used these seeds)
+uv run python -m scripts.generate_synth_data --tasks group-S --seeds 42    # only some tasks
 
-Original MAD tasks (a fixed set of task / size combinations is built in; use the flags to generate a single custom dataset instead):
-```bash
-uv run python -m scripts.generate_synth_data --seeds 42 43 12345
-
-uv run python -m scripts.generate_synth_data \
+uv run python -m scripts.generate_synth_data \                             # one custom dataset
   --task in-context-recall --vocab-size 16 --seq-len 128 \
   --num-train-examples 20000 --num-test-examples 1280 --seeds 42
 ```
+For the group tasks the generator builds the group once per seed and draws the train and test sequences without replacement, so the two splits are disjoint ([scripts/generate_group_data.py](scripts/generate_group_data.py) exposes this directly).
 
-Datasets are stored as `inputs.npy` / `targets.npy` under `<data-path>/<task-dir>/{train,test}/`. A subsequent `train.py` call with the same task arguments and seed picks the dataset up automatically.
+Datasets are stored as `inputs.npy` / `targets.npy` under `<data-path>/<task-dir>/{train,test}/`. A subsequent `train.py` call with the same task arguments and seed picks the dataset up automatically; for example the S5 dataset above is used by
+```bash
+uv run python -m train --task group-S --vocab-size 5 --seq-len 16 \
+  --num-train-examples 100000 --num-test-examples 1280 --seed 42 --precision 32 \
+  --layers bdlru-sel-wd4-d128-iso1m swiglu bdlru-sel-wd4-d128-iso1m swiglu
+```
 
 ### Original MAD tasks
 
@@ -177,7 +189,7 @@ The six MAD tasks are kept unchanged from upstream and are described in the [MAD
 - `compression`: compress a token sequence into one aggregation token from which an MLP has to recover the sequence.
 - `memorization`: learn a fixed key-value mapping from the training data.
 
-The baseline settings and difficulty changes of the upstream MAD protocol are kept in [configs/tasks/](configs/tasks/) for reference; the protocol runner itself is not part of this repository.
+The upstream MAD protocol runner is not part of this repository; [configs/tasks/](configs/tasks/) holds the dataset settings of the paper instead (see above).
 
 ## Models
 
@@ -323,13 +335,14 @@ train.py                   -> train one model on one task (main entry point)
 speed_benchmark.py         -> throughput / latency / memory benchmark for registered layers
 configs/
   layers/*.yml             -> one config per registered layer name
-  tasks/*.yml              -> MAD task baselines and difficulty changes
+  tasks/*.yml              -> dataset settings of the paper, per task
   iso_param_sweeps.json    -> index of generated iso-parameter configs (read by the registry)
 mad/
   registry.py              -> task and layer registries; iso-state spec
   configs.py               -> MADConfig / MADModelConfig dataclasses
   data/instances.py        -> instance generators for every task (incl. group-*)
   data/dataset.py          -> dataset generation / caching
+  task_configs.py          -> expands configs/tasks/*.yml into dataset settings
   model/                   -> LanguageModel / AutoEncoder backbones and layers
   model/layers/            -> bdlru_sel.py, hlru_sel.py, pdssm.py, lstm.py, deltanet.py,
                               deltaproduct.py, mamba2_fla.py + upstream primitives
@@ -337,8 +350,8 @@ mad/
   speed.py                 -> timing utilities for speed_benchmark.py
   helpers.py, paths.py, metrics.py
 scripts/
-  generate_group_data.py   -> pre-generate group-task datasets
-  generate_synth_data.py   -> pre-generate MAD-task datasets
+  generate_synth_data.py   -> generate the paper's datasets from configs/tasks/
+  generate_group_data.py   -> fast generator for the group tasks (used by the above)
   gen_iso_param_sweeps.py  -> solve and write the iso-parameter configs
   gen_iso_state_configs.py -> write the iso-state configs
   param_count.py           -> count sequence-mixer parameters

@@ -1,0 +1,13 @@
+# Word problem on the alternating group A_n (even permutations, n!/2 elements). Not
+# part of the paper's experiments; `vocab_size` is the degree n.
+baseline:
+  vocab_size: 5
+  seq_len: 16
+  num_train_examples: 10000
+  num_test_examples: 1280
+  multi_query: True
+  k_motif_size: 1
+  v_motif_size: 1
+  frac_noise: 0.0
+  noise_vocab_size: 0
+  num_tokens_to_copy: 16

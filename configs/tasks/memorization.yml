@@ -1,7 +1,17 @@
+# Memorization of a fixed key-value map; reported in the paper's extended tables.
+# Three datasets with vocabulary sizes 2048, 4096 and 8192, each with 256 training
+# sequences of length 32 (accuracy is capped by the fraction of test keys seen in training).
 baseline:
-  vocab_size: 256 
+  vocab_size: 2048
   seq_len: 32
   num_train_examples: 256
+  num_test_examples: 1280
+  multi_query: True
+  k_motif_size: 1
+  v_motif_size: 1
+  frac_noise: 0.0
+  noise_vocab_size: 0
+  num_tokens_to_copy: 16   # only used by selective copying; kept in every task so dataset paths match (ntc-16)
 
 changes:
-  vocab_size: [512, 1024, 2048, 4096, 8192]
+  vocab_size: [4096, 8192]

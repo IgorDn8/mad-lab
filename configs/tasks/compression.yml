@@ -1,9 +1,20 @@
+# Compression (auto-encoding), as used in the paper (Appendix "Synthetic token
+# manipulation tasks"). Encoder-decoder backbone (--backbone autoencoder).
 baseline:
   vocab_size: 16
-  seq_len: 32
-  num_train_examples: 12800
+  seq_len: 64
+  num_train_examples: 20000
+  num_test_examples: 1280
+  multi_query: True
+  k_motif_size: 1
+  v_motif_size: 1
+  frac_noise: 0.0
+  noise_vocab_size: 0
+  num_tokens_to_copy: 16   # only used by selective copying; kept in every task so dataset paths match (ntc-16)
 
+# Each entry of `changes` is applied on its own to the baseline (MAD protocol), giving
+# four datasets: baseline, larger vocabulary, longer sequences, fewer training examples.
 changes:
-  vocab_size: [32, 64, 128]
-  seq_len: [64, 128, 256] 
-  num_train_examples: [6400, 3200, 1600, 800]
+  vocab_size: [32]
+  seq_len: [128]
+  num_train_examples: [10000]

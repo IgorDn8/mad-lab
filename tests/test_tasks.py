@@ -4,6 +4,7 @@ from train import train
 from mad.configs import MADConfig, MADModelConfig
 from mad.registry import task_registry, layer_registry
 from mad.helpers import compute_vocab_size
+from mad.task_configs import load_task_configs, paper_tasks
 from tests import run_tests 
 
 
@@ -68,6 +69,34 @@ def test_train_tasks():
             log_path=os.path.join(cache_path, task)
         )
     shutil.rmtree(cache_path)
+    print('... passed!')
+
+
+def test_paper_task_configs():
+    """Every configs/tasks/*.yml expands to valid settings and generates an instance."""
+    print('Testing the dataset configurations in configs/tasks/...')
+    expected = {  # task -> number of datasets described in the paper
+        'in-context-recall': 4, 'selective-copying': 4, 'compression': 4,
+        'fuzzy-in-context-recall': 4, 'noisy-in-context-recall': 4,
+        'memorization': 3, 'group-S': 5,
+    }
+    tasks = paper_tasks()
+    for task, n in expected.items():
+        assert task in tasks, f'missing configs/tasks/{task}.yml'
+    for task in tasks:
+        specs = load_task_configs(task)
+        if task in expected:
+            assert len(specs) == expected[task], f'{task}: {len(specs)} settings, expected {expected[task]}'
+        for spec in specs:
+            mad_config = MADConfig(**spec)
+            kwargs = mad_config.instance_fn_kwargs
+            kwargs['is_training'] = True
+            inputs, targets = mad_config.instance_fn(**kwargs)
+            # the MAD generators produce seq_len or seq_len - 1 tokens (same bound as above)
+            for name, arr in (('inputs', inputs), ('targets', targets)):
+                assert spec['seq_len'] - 1 <= arr.size <= spec['seq_len'], \
+                    f'{task} {spec}: {name}.size={arr.size}'
+        print(f'...{task}: {len(specs)} dataset settings ok')
     print('... passed!')
 
 
