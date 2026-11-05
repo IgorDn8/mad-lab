@@ -307,12 +307,15 @@ The plotting helpers it uses ([plot_speed.py](scripts/plot_speed.py), [plot_comp
 ## Tests
 
 ```bash
-uv run python -m tests.test_datasets   # dataset generation for every task
-uv run python -m tests.test_tasks      # short training runs per task
-uv run python -m tests.test_layers     # every registered layer builds and trains
-uv run python -m tests.test_scans      # all scan implementations agree with the reference
+uv run python -m tests.test_datasets    # dataset generation for every task
+uv run python -m tests.test_tasks       # short training runs per task
+uv run python -m tests.test_scans       # all scan implementations agree with the reference
+uv run python -m tests.test_baselines   # one layer per paper family (incl. Mamba2 / DeltaNet / DeltaProduct):
+                                        # forward + backward, Householder count, short training runs
+uv run python -m tests.test_layers      # every registered layer builds and trains (slow: ~500 configs)
+MAD_TEST_LAYERS='*-d128-iso1m,swiglu' uv run python -m tests.test_layers   # restrict to a glob list
 ```
-`test_layers` and `test_scans` need a GPU.
+`test_layers`, `test_scans` and `test_baselines` need a GPU. Layers whose optional extra is missing are skipped.
 
 ## Repository structure
 ```

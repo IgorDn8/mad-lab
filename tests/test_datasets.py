@@ -17,7 +17,10 @@ def test_data_gen():
     print('Testing dataset generation for each registered task....')
     cache_path = os.path.join('.', '.testing', 'data')
     for task, task_reg in task_registry.items():
-        mad_config = MADConfig(task=task)
+        # num_tokens_to_copy defaults to 0 in MADConfig; selective-copying needs it > 0
+        # group-* tasks: vocab_size is the group degree, keep it tiny (S4 has 24 elements)
+        mad_config = MADConfig(task=task, num_tokens_to_copy=16,
+                               vocab_size=4 if task.startswith('group') else 16)
         for nw in [0, 2]:
             print(f'...now testing: {task} with num-workers={nw}...')
             data = generate_data(

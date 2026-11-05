@@ -677,6 +677,9 @@ def generate_copying_instance(
     vocab = np.arange(non_special_vocab_size)
 
     # generate inputs:
+    assert num_tokens_to_copy > 0, (
+        "num_tokens_to_copy must be > 0 for the (selective-)copying task "
+        "(pass --num-tokens-to-copy to train.py; the MAD baseline uses 16)")
     assert seq_len > (num_tokens_to_copy * 2) + 1, "seq_len must be > (num_tokens_to_copy * 2) + 1"
     num_blank_tokens = seq_len - (num_tokens_to_copy * 2) - 1
     to_copy = rng.choice(vocab, size=(num_tokens_to_copy,), replace=True).reshape(-1)

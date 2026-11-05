@@ -157,7 +157,7 @@ class BDLRU_sel(nn.Module):
 
         if self.implementation == "orig":
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.softmax(gates,-1) # B T N H H+1
@@ -177,7 +177,7 @@ class BDLRU_sel(nn.Module):
             #sys.exit(0)
         elif self.implementation == "orig_save_dynamics":
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.softmax(gates,-1) # B T N H H+1
@@ -346,7 +346,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.sigmoid(gates) # B T N H H+1
@@ -368,7 +368,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.sigmoid(gates) # B T N H H+1
@@ -413,7 +413,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.relu(gates) # B T N H H+1
@@ -435,7 +435,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.relu(gates) # B T N H H+1
@@ -483,7 +483,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = gates # B T N H H+1
@@ -505,7 +505,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = gates # B T N H H+1
@@ -550,7 +550,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.tanh(gates) # B T N H H+1
@@ -572,7 +572,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = torch.tanh(gates) # B T N H H+1
@@ -617,7 +617,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = gates # B T N H H+1
@@ -639,7 +639,7 @@ class BDLRU_sel(nn.Module):
 
             #b t n*h
             #b h t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)      # B H       
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)      # B H       
             y = []
             #print(hidden_x.shape)
             A_qk = gates # B T N H H+1

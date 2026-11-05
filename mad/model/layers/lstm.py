@@ -30,8 +30,9 @@ class LSTM(nn.Module):
         y (torch.Tensor): tensor of shape (b, t, c)
         """   
         B, T, C = x.size()
-        hidden_h = torch.zeros(1,B, self.hidden_dim).to(x.device)
-        hidden_c = torch.zeros(1,B, self.hidden_dim).to(x.device)
+        # initial state in the input's dtype/device (cuDNN requires input and hidden to match)
+        hidden_h = torch.zeros(1, B, self.hidden_dim, device=x.device, dtype=x.dtype)
+        hidden_c = torch.zeros(1, B, self.hidden_dim, device=x.device, dtype=x.dtype)
 
         y, _ = self.lstm(input=x, hx=(hidden_h, hidden_c))
         y = self.proj_out(y) # B T C       

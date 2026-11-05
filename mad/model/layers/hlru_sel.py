@@ -171,7 +171,7 @@ class HLRU_sel(nn.Module):
 
         if self.implementation == "orig":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.softmax(gates,-1) # B T C WD+1
             nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
@@ -235,7 +235,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "orig_save_dynamics":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.softmax(gates,-1) # B T C WD+1
             nl = F.pad(A_qk[:,:,:,-1:]*v[:,:,:].unsqueeze(-1),(0,self.window_dim-1)) # B T C WD
@@ -258,7 +258,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "sigmoid_l1":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.sigmoid(gates) # B T C WD+1
             A_qk = A_qk/torch.sum(A_qk,-1,keepdim=True)
@@ -276,7 +276,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "sigmoid_l1_save_dynamics":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.sigmoid(gates) # B T C WD+1
             A_qk = A_qk/torch.sum(A_qk,-1,keepdim=True)
@@ -308,7 +308,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "relu_l1":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.relu(gates) # B T C WD+1
             A_qk = A_qk/torch.sum(A_qk+0.001,-1,keepdim=True)
@@ -326,7 +326,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "relu_l1_save_dynamics":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.relu(gates) # B T C WD+1
             A_qk = A_qk/torch.sum(A_qk+0.001,-1,keepdim=True)
@@ -359,7 +359,7 @@ class HLRU_sel(nn.Module):
         #  
         elif self.implementation == "nonorm":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = gates# B T C WD+1
             # A_qk = A_qk/torch.sum(A_qk,-1,keepdim=True)
@@ -377,7 +377,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "nonorm_save_dynamics":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = gates# B T C WD+1
             # A_qk = A_qk/torch.sum(A_qk,-1,keepdim=True)
@@ -409,7 +409,7 @@ class HLRU_sel(nn.Module):
         #  tanh
         elif self.implementation == "tanh_l1":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.tanh(gates) # B T C WD+1
             A_qk = A_qk/torch.sum(torch.abs(A_qk),-1,keepdim=True)
@@ -427,7 +427,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "tanh_l1_save_dynamics":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = torch.tanh(gates) # B T C WD+1
             A_qk = A_qk/torch.sum(torch.abs(A_qk),-1,keepdim=True)
@@ -460,7 +460,7 @@ class HLRU_sel(nn.Module):
         # linl1
         elif self.implementation == "lin_l1":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = gates # B T C WD+1
             A_qk = A_qk/torch.sum(torch.abs(A_qk),-1,keepdim=True)
@@ -478,7 +478,7 @@ class HLRU_sel(nn.Module):
 
         elif self.implementation == "lin_l1_save_dynamics":
             #b t c
-            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim).to(hidden_states.device)    # B C WD        
+            hidden_x = torch.zeros(B, self.hidden_dim, self.window_dim, device=hidden_states.device, dtype=hidden_states.dtype)    # B C WD        
             y = []
             A_qk = gates # B T C WD+1
             A_qk = A_qk/torch.sum(torch.abs(A_qk),-1,keepdim=True)
